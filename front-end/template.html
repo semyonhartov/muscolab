@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Sync Room (Demo Mode)</title>
+    <style>
+        :root { --primary: #ffcc00; --dark: #222; --light: #f9f9f9; --text: #333; --danger: #ff4d4d; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--light); color: var(--text); margin: 0; padding: 0; line-height: 1.6; }
+        
+        /* Утилиты */
+        .hidden { display: none !important; }
+        .btn { background: var(--dark); color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-small { padding: 5px 10px; font-size: 0.85rem; }
+        .btn-danger { background: var(--danger); }
+        .btn-primary { background: var(--primary); color: var(--dark); }
+        input { padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+        
+        /* Экран входа */
+        #login-screen { height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #ffcc00 0%, #ff9900 100%); }
+        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); width: 90%; max-width: 400px; text-align: center; }
+        .card h1 { margin-top: 0; color: var(--dark); }
+        .divider { margin: 15px 0; color: #999; font-size: 0.9rem; position: relative; }
+        
+        /* Основной интерфейс */
+        header { background: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 10; }
+        .room-badge { background: #eee; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; color: #666; }
+        
+        .container { max-width: 1000px; margin: 20px auto; padding: 0 20px; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .container { grid-template-columns: 1fr; } }
+
+        /* Плеер */
+        .player-card { background: white; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); grid-column: 1 / -1; }
+        .cover-art { width: 150px; height: 150px; background: #eee; border-radius: 8px; margin: 0 auto 15px; object-fit: cover; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .track-title { font-size: 1.5rem; font-weight: bold; margin: 0; }
+        .track-artist { color: #666; margin-bottom: 20px; }
+        .controls { display: flex; justify-content: center; gap: 15px; }
+        .progress-bar { height: 6px; background: #eee; border-radius: 3px; margin: 15px 0; overflow: hidden; position: relative; }
+        .progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 1s linear; }
+        
+        /* Очередь и Поиск */
+        .panel { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .panel h2 { margin-top: 0; font-size: 1.2rem; border-bottom: 2px solid var(--primary); display: inline-block; padding-bottom: 5px; }
+        
+        .track-list { list-style: none; padding: 0; margin: 0; }
+        .track-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0f0f0; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .track-item img { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; background: #eee; }
+        .track-info { flex-grow: 1; min-width: 0; }
+        .track-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .track-artist-sm { font-size: 0.85rem; color: #777; }
+        .track-actions { display: flex; gap: 5px; align-items: center; }
+        .vote-btn { background: transparent; border: 1px solid #ddd; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+        .vote-btn:hover { background: #f0f0f0; }
+        .score { font-weight: bold; min-width: 20px; text-align: center; }
+        
+        /* Сайдбар участников */
+        .users-list { list-style: none; padding: 0; }
+        .user-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+        .avatar { width: 32px; height: 32px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: var(--dark); font-size: 0.9rem; }
+        .host-tag { font-size: 0.7rem; background: var(--dark); color: white; padding: 2px 6px; border-radius: 4px; margin-left: auto; }
+        
+        /* Уведомления */
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--dark); color: white; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: 0.3s; pointer-events: none; z-index: 100; }
+        .toast.show { opacity: 1; bottom: 40px; }
+    </style>
+</head>
+<body>
+
+    <!-- ЭКРАН ВХОДА -->
+    <div id="login-screen">
+        <div class="card">
+            <h1>🎵 SyncRoom</h1>
+            <p>Демо-режим (без сервера)</p>
+            <input type="text" id="username" placeholder="Ваше имя" value="Алекс">
+            
+            <button class="btn btn-primary" onclick="app.createRoom()">Создать комнату</button>
+            
+            <div class="divider">или войти по коду</div>
+            
+            <input type="text" id="room-code-input" placeholder="Код (например 123456)" style="display:none;">
+            <button id="btn-toggle-join" class="btn" style="background:#eee; color:#333;" onclick="app.toggleJoinMode()">Ввести код</button>
+            <button id="btn-join" class="btn hidden" onclick="app.joinRoom()">Войти</button>
+        </div>
+    </div>
+
+    <!-- ОСНОВНОЙ ЭКРАН -->
+    <div id="app-screen" class="hidden">
+        <header>
+            <div>
+                <strong>SyncRoom</strong>
+                <span class="room-badge" id="display-room-code">#------</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span id="display-username">User</span>
+                <button class="btn btn-small btn-danger" onclick="location.reload()">Выйти</button>
+            </div>
+        </header>
+
+        <div class="container">
+            <!-- Левая колонка: Плеер и Поиск -->
+            <div class="main-col">
+                <!-- Плеер -->
+                <div class="player-card">
+                    <img src="https://via.placeholder.com/150/cccccc/969696?text=Music" id="player-cover" class="cover-art">
+                    <h2 class="track-title" id="player-title">Ожидание...</h2>
+                    <p class="track-artist" id="player-artist">Выберите трек или создайте очередь</p>
+                    
+                    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                    
+                    <div class="controls">
+                        <button class="btn btn-small" disabled>⏮</button>
+                        <button class="btn btn-primary" id="btn-play-pause" onclick="app.togglePlay()">▶ Play</button>
+                        <button class="btn btn-small" onclick="app.nextTrack()">⏭ Next</button>
+                    </div>
+                    <p id="host-status-msg" style="font-size:0.8rem; color:#888; margin-top:10px;"></p>
+                </div>
+
+                <!-- Поиск -->
+                <div class="panel" style="margin-bottom: 20px;">
+                    <h2>🔍 Поиск треков</h2>
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="search-query" placeholder="Например: Rock, Pop, Jazz..." style="margin:0;">
+                        <button class="btn" onclick="app.searchTracks()">Найти</button>
+                    </div>
+                    <ul class="track-list" id="search-results" style="margin-top:15px;"></ul>
+                </div>
+
+                <!-- Очередь -->
+                <div class="panel">
+                    <h2>Очередь воспроизведения</h2>
+                    <ul class="track-list" id="queue-list">
+                        <li style="text-align:center; color:#999; padding:20px;">Очередь пуста. Добавьте треки!</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Правая колонка: Участники -->
+            <aside class="panel">
+                <h2>👥 Участники</h2>
+                <ul class="users-list" id="users-list"></ul>
+                <div id="is-host-badge" class="hidden" style="margin-top:20px; padding:10px; background:#e6fffa; border:1px solid #b2f5ea; border-radius:6px; color:#2c7a7b; font-size:0.9rem;">
+                    Вы создатель комнаты!<br>Только вы можете управлять плеером.
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Уведомление</div>
+
+    <script>
+        // ДАННЫЕ ДЛЯ ЭМУЛЯЦИИ
+        const MOCK_DB = [
+            { id: '1', title: 'Bohemian Rhapsody', artist: 'Queen', cover: 'https://upload.wikimedia.org/wikipedia/en/9/9f/Bohemian_Rhapsody.png' },
+            { id: '2', title: 'Blinding Lights', artist: 'The Weeknd', cover: 'https://upload.wikimedia.org/wikipedia/en/a/a8/The_Weeknd_-_Blinding_Lights.png' },
+            { id: '3', title: 'Shape of You', artist: 'Ed Sheeran', cover: 'https://upload.wikimedia.org/wikipedia/en/b/b4/Shape_of_You_%28Official_Single_Cover%29_by_Ed_Sheeran.png' },
+            { id: '4', title: 'Levitating', artist: 'Dua Lipa', cover: 'https://upload.wikimedia.org/wikipedia/en/b/b9/Dua_Lipa_-_Levitating.png' },
+            { id: '5', title: 'Hotel California', artist: 'Eagles', cover: 'https://upload.wikimedia.org/wikipedia/en/4/49/Hotelcalifornia.jpg' },
+            { id: '6', title: 'Imagine', artist: 'John Lennon', cover: 'https://upload.wikimedia.org/wikipedia/en/9/9e/Imaginejohnlennon.jpg' },
+            { id: '7', title: 'Smells Like Teen Spirit', artist: 'Nirvana', cover: 'https://upload.wikimedia.org/wikipedia/en/b/b7/NirvanaNevermindalbumcover.jpg' },
+            { id: '8', title: 'Billie Jean', artist: 'Michael Jackson', cover: 'https://upload.wikimedia.org/wikipedia/en/3/3e/Michael_Jackson_Billie_Jean.jpg' }
+        ];
+
+        const app = {
+            state: {
+                user: null,
+                isHost: false,
+                roomCode: null,
+                users: [],
+                queue: [], // { id, title, artist, cover, score, votes: {} }
+                currentTrack: null,
+                isPlaying: false,
+                progress: 0,
+                progressInterval: null
+            },
+
+            init() {
+            },
+
+            toggleJoinMode() {
+                const input = document.getElementById('room-code-input');
+                const btnToggle = document.getElementById('btn-toggle-join');
+                const btnJoin = document.getElementById('btn-join');
+                
+                if (input.style.display === 'none') {
+                    input.style.display = 'block';
+                    btnJoin.classList.remove('hidden');
+                    btnToggle.innerText = 'Отмена';
+                } else {
+                    input.style.display = 'none';
+                    btnJoin.classList.add('hidden');
+                    btnToggle.innerText = 'Ввести код';
+                }
+            },
+
+            createRoom() {
+                const name = document.getElementById('username').value.trim() || 'Гость';
+                this.state.user = { id: 'me', name };
+                this.state.isHost = true;
+                this.state.roomCode = Math.floor(100000 + Math.random() * 900000).toString();
+                
+                // Добавляем себя
+                this.state.users = [{ id: 'me', name, isHost: true }];
+                
+                // ЭМУЛЯЦИЯ: Добавляем бота-друга через 1 секунду
+                setTimeout(() => {
+                    this.addUser({ id: 'bot1', name: 'Мария (Друг)', isHost: false });
+                    this.showToast('Мария присоединилась к комнате');
+                }, 1500);
+
+                this.enterApp();
+            },
+
+            joinRoom() {
+                const code = document.getElementById('room-code-input').value.trim();
+                const name = document.getElementById('username').value.trim() || 'Гость';
+                
+                if (!code) return alert('Введите код!');
+                
+                this.state.user = { id: 'me', name };
+                this.state.isHost = false; // Пришедший не хост
+                this.state.roomCode = code;
+                this.state.users = [{ id: 'host_mock', name: 'Создатель', isHost: true }]; // Эмуляция существующего хоста
+                
+                // Эмуляция загрузки состояния
+                setTimeout(() => {
+                    this.enterApp();
+                    this.showToast(`Вы вошли в комнату ${code}`);
+                    // Эмуляция того, что хост видит ваш вход (в реальности это сокет)
+                }, 500);
+            },
+
+            enterApp() {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('app-screen').classList.remove('hidden');
+                
+                document.getElementById('display-username').innerText = this.state.user.name;
+                document.getElementById('display-room-code').innerText = `#${this.state.roomCode}`;
+                
+                if (this.state.isHost) {
+                    document.getElementById('is-host-badge').classList.remove('hidden');
+                    document.getElementById('host-status-msg').innerText = 'Режим ведущего: управление активно';
+                } else {
+                    document.getElementById('host-status-msg').innerText = 'Режим участника: ожидайте действий ведущего';
+                }
+
+                this.renderUsers();
+                this.renderQueue();
+            },
+
+            addUser(user) {
+                this.state.users.push(user);
+                this.renderUsers();
+            },
+
+            removeUser(id) {
+                this.state.users = this.state.users.filter(u => u.id !== id);
+                this.renderUsers();
+            },
+
+            renderUsers() {
+                const list = document.getElementById('users-list');
+                list.innerHTML = '';
+                this.state.users.forEach(u => {
+                    const li = document.createElement('li');
+                    li.className = 'user-item';
+                    li.innerHTML = `
+                        <div class="avatar">${u.name[0].toUpperCase()}</div>
+                        <span>${u.name}</span>
+                        ${u.isHost ? '<span class="host-tag">HOST</span>' : ''}
+                    `;
+                    list.appendChild(li);
+                });
+            },
+
+            searchTracks() {
+                const query = document.getElementById('search-query').value.toLowerCase();
+                const resultsContainer = document.getElementById('search-results');
+                resultsContainer.innerHTML = '';
+
+                // Фильтрация мок-данных
+                const results = MOCK_DB.filter(t => 
+                    t.title.toLowerCase().includes(query) || 
+                    t.artist.toLowerCase().includes(query) ||
+                    query === '' // Показать все если пусто
+                );
+
+                if (results.length === 0) {
+                    resultsContainer.innerHTML = '<li style="padding:10px; color:#999;">Ничего не найдено 😔</li>';
+                    return;
+                }
+
+                results.forEach(track => {
+                    const li = document.createElement('li');
+                    li.className = 'track-item';
+                    li.innerHTML = `
+                        <img src="${track.cover}" alt="cover">
+                        <div class="track-info">
+                            <div class="track-name">${track.title}</div>
+                            <div class="track-artist-sm">${track.artist}</div>
+                        </div>
+                        <button class="btn btn-small btn-primary" onclick="app.addToQueue('${track.id}')">+</button>
+                    `;
+                    resultsContainer.appendChild(li);
+                });
+            },
+
+            addToQueue(trackId) {
+                const trackData = MOCK_DB.find(t => t.id === trackId);
+                if (!trackData) return;
+
+                // Проверка на дубликат
+                if (this.state.queue.some(t => t.id === trackId)) {
+                    this.showToast('Трек уже в очереди!');
+                    return;
+                }
+
+                const newTrack = {
+                    ...trackData,
+                    score: 0,
+                    votes: {} // { userId: 1 or -1 }
+                };
+
+                this.state.queue.push(newTrack);
+                this.sortQueue();
+                this.renderQueue();
+                this.showToast('Трек добавлен в очередь');
+                
+                // Эмуляция: Бот тоже лайкает новый трек иногда
+                if (!this.state.isHost && Math.random() > 0.5) {
+                    setTimeout(() => {
+                        this.vote(trackId, 1, 'bot1');
+                        this.showToast('Мария лайкнула трек!');
+                    }, 2000);
+                }
+            },
+
+            sortQueue() {
+                this.state.queue.sort((a, b) => b.score - a.score);
+            },
+
+            vote(trackId, value, userId = 'me') {
+                const track = this.state.queue.find(t => t.id === trackId);
+                if (!track) return;
+
+                const prevVote = track.votes[userId] || 0;
+                track.votes[userId] = value;
+                track.score += (value - prevVote);
+                
+                this.sortQueue();
+                this.renderQueue();
+            },
+
+            renderQueue() {
+                const list = document.getElementById('queue-list');
+                list.innerHTML = '';
+
+                if (this.state.queue.length === 0) {
+                    list.innerHTML = '<li style="text-align:center; color:#999; padding:20px;">Очередь пуста</li>';
+                    return;
+                }
+
+                this.state.queue.forEach(track => {
+                    const myVote = track.votes['me'] || 0;
+                    const li = document.createElement('li');
+                    li.className = 'track-item';
+                    li.innerHTML = `
+                        <img src="${track.cover}" alt="cover">
+                        <div class="track-info">
+                            <div class="track-name">${track.title}</div>
+                            <div class="track-artist-sm">${track.artist}</div>
+                        </div>
+                        <div class="track-actions">
+                            <button class="vote-btn" style="color:${myVote===1?'green':'#333'}" onclick="app.vote('${track.id}', 1)">👍</button>
+                            <span class="score">${track.score}</span>
+                            <button class="vote-btn" style="color:${myVote===-1?'red':'#333'}" onclick="app.vote('${track.id}', -1)">👎</button>
+                        </div>
+                    `;
+                    list.appendChild(li);
+                });
+            },
+
+            togglePlay() {
+                if (!this.state.isHost) {
+                    this.showToast('Только ведущий может управлять плеером!');
+                    return;
+                }
+
+                const btn = document.getElementById('btn-play-pause');
+                
+                if (this.state.isPlaying) {
+                    this.pause();
+                } else {
+                    this.play();
+                }
+            },
+
+            play() {
+                if (!this.state.currentTrack && this.state.queue.length > 0) {
+                    this.nextTrack(); // Взять первый из очереди
+                    return;
+                }
+                
+                this.state.isPlaying = true;
+                document.getElementById('btn-play-pause').innerText = '⏸ Pause';
+                this.startProgress();
+                this.showToast('Воспроизведение начато');
+                
+                // Эмуляция синхронизации: показываем сообщение, что другие видят это
+                setTimeout(() => this.showToast('Все участники слышат музыку'), 1000);
+            },
+
+            pause() {
+                this.state.isPlaying = false;
+                document.getElementById('btn-play-pause').innerText = '▶ Play';
+                clearInterval(this.state.progressInterval);
+                this.showToast('Воспроизведение приостановлено');
+            },
+
+            nextTrack() {
+                if (!this.state.isHost) return;
+
+                // Если есть текущий, ставим его лайки в ноль или просто убираем (упрощенно)
+                this.state.queue = this.state.queue.filter(t => t.id !== (this.state.currentTrack?.id));
+                
+                if (this.state.queue.length === 0) {
+                    this.stopPlayer();
+                    return;
+                }
+
+                // Берем первый (он уже отсортирован по рейтингу)
+                const next = this.state.queue.shift();
+                this.setTrack(next);
+                this.play();
+            },
+
+            setTrack(track) {
+                this.state.currentTrack = track;
+                document.getElementById('player-title').innerText = track.title;
+                document.getElementById('player-artist').innerText = track.artist;
+                document.getElementById('player-cover').src = track.cover;
+                this.state.progress = 0;
+                document.getElementById('progress-fill').style.width = '0%';
+            },
+
+            stopPlayer() {
+                this.pause();
+                this.state.currentTrack = null;
+                document.getElementById('player-title').innerText = 'Ожидание...';
+                document.getElementById('player-artist').innerText = 'Очередь пуста';
+                document.getElementById('player-cover').src = 'https://via.placeholder.com/150/cccccc/969696?text=Music';
+            },
+
+            startProgress() {
+                clearInterval(this.state.progressInterval);
+                this.state.progressInterval = setInterval(() => {
+                    if (!this.state.isPlaying) return;
+                    this.state.progress += 1;
+                    if (this.state.progress >= 100) {
+                        this.nextTrack(); // Автосвитч
+                    } else {
+                        document.getElementById('progress-fill').style.width = `${this.state.progress}%`;
+                    }
+                }, 200); // Симуляция трека длиной ~20 секунд для демо
+            },
+
+            showToast(msg) {
+                const toast = document.getElementById('toast');
+                toast.innerText = msg;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 3000);
+            }
+        };
+
+        // Инициализация поиска при загрузке (показать популярные)
+        window.onload = () => {
+            // Можно раскомментировать, чтобы сразу показать треки
+            // app.searchTracks(); 
+        };
+    </script>
+</body>
+</html>
