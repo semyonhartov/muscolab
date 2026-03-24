@@ -19,7 +19,6 @@ pool.connect((err, client, release) => {
   if (err) {
     console.error('❌ Ошибка подключения к БД:', err.message);
   } else {
-    console.log('✅ Подключение к PostgreSQL установлено');
     release();
   }
 });

@@ -1,76 +1,72 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import pool from '../config/database.js';
+import {
+  createRoomHandler,
+  joinRoomHandler,
+  getRoomQueueHandler,
+  addTrackToRoomHandler,
+  removeTrackFromRoomHandler,
+  voteTrackHandler,
+  nextTrackHandler,
+  endRoomHandler
+} from '../controllers/roomsController.js';
 
 const router = Router();
 
 /**
- * Создание комнаты
  * @route POST /api/rooms
+ * @desc Создание новой комнаты
+ * @access Private
  */
-router.post('/', requireAuth, async (req, res) => {
-  try {
-    // Генерация уникального 6-значного кода
-    const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
-    
-    let code;
-    let exists = true;
-    
-    // Проверка на уникальность
-    while (exists) {
-      code = generateCode();
-      const result = await pool.query('SELECT id FROM rooms WHERE code = $1', [code]);
-      exists = result.rows.length > 0;
-    }
-    
-    const query = `
-      INSERT INTO rooms (code, host_id) 
-      VALUES ($1, $2) 
-      RETURNING id, code, host_id, created_at
-    `;
-    const result = await pool.query(query, [code, req.user.userId]);
-    
-    res.status(201).json({ room: result.rows[0] });
-  } catch (error) {
-    console.error('Create room error:', error.message);
-    res.status(500).json({ error: 'Failed to create room' });
-  }
-});
+router.post('/', requireAuth, createRoomHandler);
 
 /**
- * Присоединение к комнате
  * @route POST /api/rooms/:code/join
+ * @desc Присоединение к комнате по коду
+ * @access Private
  */
-router.post('/:code/join', requireAuth, async (req, res) => {
-  try {
-    const { code } = req.params;
-    
-    const result = await pool.query(
-      `SELECT r.id, r.code, r.host_id, r.is_active, u.nickname as host_name
-       FROM rooms r
-       JOIN users u ON r.host_id = u.id
-       WHERE r.code = $1 AND r.is_active = TRUE`,
-      [code]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Room not found or inactive' });
-    }
-    
-    res.json({ room: result.rows[0] });
-  } catch (error) {
-    console.error('Join room error:', error.message);
-    res.status(500).json({ error: 'Failed to join room' });
-  }
-});
+router.post('/:code/join', requireAuth, joinRoomHandler);
 
 /**
- * Получение очереди треков в комнате (заглушка)
  * @route GET /api/rooms/:id/queue
+ * @desc Получение очереди треков в комнате
+ * @access Private
  */
-router.get('/:id/queue', requireAuth, async (req, res) => {
-  // TODO: Реализовать получение очереди из БД с сортировкой
-  res.json({ queue: [], currentTrack: null });
-});
+router.get('/:id/queue', requireAuth, getRoomQueueHandler);
+
+/**
+ * @route POST /api/rooms/:roomId/tracks
+ * @desc Добавление трека в очередь комнаты
+ * @access Private
+ */
+router.post('/:roomId/tracks', requireAuth, addTrackToRoomHandler);
+
+/**
+ * @route DELETE /api/rooms/:roomId/tracks/:roomTrackId
+ * @desc Удаление трека из очереди
+ * @access Private
+ */
+router.delete('/:roomId/tracks/:roomTrackId', requireAuth, removeTrackFromRoomHandler);
+
+/**
+ * @route POST /api/rooms/:roomId/tracks/:roomTrackId/vote
+ * @desc Голосование за трек (+1/-1)
+ * @access Private
+ */
+router.post('/:roomId/tracks/:roomTrackId/vote', requireAuth, voteTrackHandler);
+
+/**
+ * @route POST /api/rooms/:roomId/next
+ * @desc Переход к следующему треку (только Host)
+ * @access Private
+ */
+router.post('/:roomId/next', requireAuth, nextTrackHandler);
+
+/**
+ * @route POST /api/rooms/:roomId/end
+ * @desc Завершение комнаты (только Host)
+ * @access Private
+ */
+router.post('/:roomId/end', requireAuth, endRoomHandler);
 
 export default router;

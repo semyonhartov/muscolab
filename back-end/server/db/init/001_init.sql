@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     title VARCHAR(255) NOT NULL,
     artist VARCHAR(255) NOT NULL,
     cover_url TEXT,
+    cover_uri TEXT,
     duration_ms INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -60,6 +61,16 @@ CREATE TABLE IF NOT EXISTS votes (
     UNIQUE(room_track_id, user_id)
 );
 CREATE INDEX idx_votes_room_track ON votes(room_track_id);
+
+-- Таблица сохраненных треков пользователей (аналог плейлиста)
+CREATE TABLE IF NOT EXISTS user_saved_tracks (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, track_id)
+);
+CREATE INDEX idx_user_saved_tracks_user ON user_saved_tracks(user_id);
 
 -- Триггер для обновления updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()

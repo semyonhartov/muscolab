@@ -21,35 +21,51 @@ export const redirectToYandexAuth = (req, res) => {
 export const handleYandexCallback = async (req, res) => {
   try {
     const { code, error, error_description } = req.query;
-    
+
+    console.log('OAuth callback received:', { code: code ? 'present' : 'missing', error, error_description });
+
     if (error) {
       console.error('OAuth error:', error, error_description);
-      return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(error_description)}`);
+      return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(error_description || error)}`);
     }
-    
+
     if (!code) {
+      console.error('No authorization code received');
       return res.redirect(`${process.env.FRONTEND_URL}/login?error=No authorization code`);
     }
-    
+
     // 1. Обмен кода на токены
+    console.log('Exchanging code for tokens...');
     const tokens = await exchangeCodeForTokens(code);
-    
+    console.log('Tokens received:', { 
+      accessToken: tokens.accessToken ? 'present' : 'missing',
+      refreshToken: tokens.refreshToken ? 'present' : 'missing',
+      expiresIn: tokens.expiresIn 
+    });
+
     // 2. Получение профиля пользователя
+    console.log('Fetching Yandex profile...');
     const profile = await fetchYandexProfile(tokens.accessToken);
-    
+    console.log('Profile received:', profile);
+
     // 3. Сохранение пользователя в БД
+    console.log('Saving user to database...');
     const user = await saveUserToDb(profile, tokens);
-    
+    console.log('User saved:', user);
+
     // 4. Генерация JWT сессии для нашего приложения
     const sessionToken = generateSessionToken(user.id, user.yandex_id);
-    
+    console.log('Session token generated');
+
     // 5. Редирект на фронтенд с токеном
-    // (в продакшене лучше использовать httpOnly cookie)
     res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${sessionToken}&user=${encodeURIComponent(JSON.stringify(user))}`);
-    
+
   } catch (error) {
     console.error('Auth callback error:', error.message);
-    res.redirect(`${process.env.FRONTEND_URL}/login?error=Authentication failed`);
+    if (error.stack) {
+      console.error('Stack trace:', error.stack);
+    }
+    res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(error.message)}`);
   }
 };
 

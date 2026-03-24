@@ -1,43 +1,48 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
+import {
+  searchTracksHandler,
+  getTrackHandler,
+  saveTrackHandler,
+  getSavedTracksHandler,
+  removeSavedTrackHandler
+} from '../controllers/tracksController.js';
 
 const router = Router();
 
 /**
- * Поиск треков (заглушка)
  * @route GET /api/tracks/search?q=...
+ * @desc Поиск треков через API Яндекс Музыки
+ * @access Private
  */
-router.get('/search', requireAuth, async (req, res) => {
-  const { q } = req.query;
-  
-  // TODO: Реализовать запрос к Яндекс Music API
-  // Пока возвращаем мок-данные
-  const mockTracks = [
-    {
-      id: 'mock_1',
-      yandex_track_id: '12345',
-      title: `Найдено: ${q || 'запрос'}`,
-      artist: 'Mock Artist',
-      cover_url: 'https://via.placeholder.com/200',
-      duration_ms: 180000,
-    }
-  ];
-  
-  res.json({ tracks: mockTracks, total: mockTracks.length });
-});
+router.get('/search', requireAuth, searchTracksHandler);
 
 /**
- * Добавление трека в личный плейлист (заглушка)
- * @route POST /api/tracks/:id/save
+ * @route GET /api/tracks/:id
+ * @desc Получение трека по ID
+ * @access Private
  */
-router.post('/:id/save', requireAuth, async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.userId;
-  
-  // TODO: Реализовать добавление через Яндекс API
-  console.log(`User ${userId} wants to save track ${id}`);
-  
-  res.json({ success: true, message: 'Track saved (mock)' });
-});
+router.get('/:id', requireAuth, getTrackHandler);
+
+/**
+ * @route POST /api/tracks/:id/save
+ * @desc Добавление трека в личный плейлист пользователя
+ * @access Private
+ */
+router.post('/:id/save', requireAuth, saveTrackHandler);
+
+/**
+ * @route GET /api/tracks/saved
+ * @desc Получение сохраненных треков пользователя
+ * @access Private
+ */
+router.get('/saved', requireAuth, getSavedTracksHandler);
+
+/**
+ * @route DELETE /api/tracks/saved/:trackId
+ * @desc Удаление трека из сохраненных
+ * @access Private
+ */
+router.delete('/saved/:trackId', requireAuth, removeSavedTrackHandler);
 
 export default router;
