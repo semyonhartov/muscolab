@@ -66,14 +66,14 @@
     "sessionId": "1fffcada-88c6-4c08-9155-2442e49cbd5c",
     "messageId": 9,
     "type": "user",
-    "message": "Я успешно получил токен eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInlhbmRleElkIjoiMTI4MDU1MTE3NCIsImlhdCI6MTc3NDM0NTE0NCwiZXhwIjoxNzc0OTQ5OTQ0fQ.JIvFucs-6s7tkAUUqlnUZ9GW9XKRb5da79Bik_3rnbQ\nТеперь выполни запросы для проверки всего API, используя мой токен",
+    "message": "Я успешно получил токен ..\nТеперь выполни запросы для проверки всего API, используя мой токен",
     "timestamp": "2026-03-24T09:41:44.130Z"
   },
   {
     "sessionId": "1fffcada-88c6-4c08-9155-2442e49cbd5c",
     "messageId": 10,
     "type": "user",
-    "message": "Продолжи проверку api с токеном eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInlhbmRleElkIjoiMTI4MDU1MTE3NCIsImlhdCI6MTc3NDM0NTE0NCwiZXhwIjoxNzc0OTQ5OTQ0fQ.JIvFucs-6s7tkAUUqlnUZ9GW9XKRb5da79Bik_3rnbQ",
+    "message": "Продолжи проверку api с токеном ..",
     "timestamp": "2026-03-24T09:44:20.176Z"
   },
   {
