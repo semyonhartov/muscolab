@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music Sync Room</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
+</head>
+<body>
+
+<!-- Экран авторизации -->
+<div id="login-screen">
+  <div class="card">
+    <h1>🎵 SyncRoom</h1>
+    <p>Слушайте музыку синхронно с друзьями!</p>
+    <button id="btn-login-yandex" class="btn">Войти через Яндекс</button>
+    <div class="divider">или продолжите как гость</div>
+    <input type="text" id="username" placeholder="Ваше имя" />
+    <button class="btn" id="btn-create-or-join" onclick="app.toggleJoinMode()">Создать комнату или войти по коду</button>
+    <div id="room-code-input" class="hidden">
+      <input type="text" id="room-code-input-field" placeholder="Введите 6-значный код комнаты" />
+      <button class="btn" id="btn-join">Войти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Основное приложение -->
+<div id="app-screen" class="hidden">
+  <header class="app-header">
+    <div class="user-info">
+      <span id="display-username">Пользователь</span>
+      <span class="room-badge" id="display-room-code">#------</span>
+      <span id="is-host-badge" class="host-tag hidden">HOST</span>
+    </div>
+    <div class="status-info">
+      <span id="host-status-msg">Режим ведущего: управление активно</span>
+    </div>
+    <button class="btn btn-small btn-logout" onclick="app.logout()">Выйти</button>
+  </header>
+
+  <div class="container">
+    <!-- Плеер -->
+    <div class="player-card">
+      <img id="player-cover" src="https://via.placeholder.com/300/cccccc/969696?text=Music" alt="cover" class="cover-art">
+      <h2 id="player-title">Ожидание...</h2>
+      <p id="player-artist">Очередь пуста</p>
+
+      <div class="controls">
+        <button class="btn btn-small" onclick="app.previousTrack()">⏮ Prev</button>
+        <button class="btn" id="btn-play-pause" onclick="app.togglePlay()">▶ Play</button>
+        <button class="btn btn-small" onclick="app.nextTrack()">⏭ Next</button>
+      </div>
+
+      <div class="progress-container">
+        <span id="current-time">0:00</span>
+        <div class="progress-bar" id="progress-bar">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <span id="duration">0:00</span>
+      </div>
+      
+      <!-- Кнопка добавить в плейлист -->
+      <button class="btn btn-small btn-save" id="btn-save-track" onclick="app.saveCurrentTrack()" style="display:none;">
+        💾 Сохранить в плейлист
+      </button>
+    </div>
+
+    <!-- Поиск треков -->
+    <div class="panel">
+      <h2>🔍 Поиск треков</h2>
+      <div class="search-container">
+        <input type="text" id="search-query" placeholder="Название трека или исполнитель..." />
+        <button class="btn" onclick="app.searchTracks()">Найти</button>
+      </div>
+      <div id="search-loading" class="hidden">Поиск...</div>
+      <ul id="search-results" class="track-list"></ul>
+    </div>
+
+    <!-- Очередь -->
+    <div class="panel">
+      <h2>📋 Очередь воспроизведения <span id="queue-count">(0)</span></h2>
+      <ul id="queue-list" class="track-list"></ul>
+    </div>
+
+    <!-- Участники -->
+    <div class="panel sidebar">
+      <h2>👥 Участники</h2>
+      <ul id="users-list" class="users-list"></ul>
+    </div>
+  </div>
+
+  <!-- Уведомления -->
+  <div id="toast" class="toast"></div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

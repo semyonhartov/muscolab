@@ -4,112 +4,82 @@ import pool from '../config/database.js';
 const YANDEX_API_BASE = 'https://api.music.yandex.net';
 
 /**
- * Поиск треков через API Яндекс Музыки
+ * Поиск треков в Яндекс Музыке
  * @param {string} query - Поисковый запрос
- * @returns {Promise<Array>} - Массив треков (максимум 10)
+ * @param {string} accessToken - Токен пользователя
+ * @returns {Promise<Array>} - Массив найденных треков
  */
-export const searchTracks = async (query) => {
+export const searchTracks = async (query, accessToken) => {
   try {
     const response = await axios.get(`${YANDEX_API_BASE}/search`, {
       params: {
         text: query,
         type: 'track',
-        nocorrect: 'true',
         page: 0,
+        nocorrect: false,
+      },
+      headers: {
+        Authorization: `OAuth ${accessToken}`,
       },
     });
 
-    // Проверяем наличие ошибки
-    if (response.data.error) {
-      console.error('Yandex Music API error:', response.data.error);
-      return [];
-    }
-
-    // Получаем треки из правильной структуры: result.tracks.results
-    let tracks = [];
+    const tracks = response.data.result?.blocks?.[0]?.list || [];
     
-    if (response.data.result?.tracks?.results) {
-      tracks = response.data.result.tracks.results;
-    } else if (response.data.result?.blocks) {
-      // Альтернативная структура с блоками
-      for (const block of response.data.result.blocks) {
-        if (block.type === 'track' || block.type === 'track_cover' || block.list) {
-          tracks = block.list || [];
-          break;
-        }
-      }
-    }
-
-    // Ограничиваем до 10 треков
-    tracks = tracks.slice(0, 10);
-
-    return tracks.map((track) => {
-      const artist = track.artists?.[0]?.name || 'Unknown Artist';
-      const coverUri = track.cover_uri || track.coverUrl || '';
-      
-      // Конвертируем cover_uri в полный URL для обложки
-      const coverUrl = coverUri
-        ? coverUri.replace('%%', '400x400')
-        : 'https://via.placeholder.com/400?text=No+Cover';
-
-      return {
-        yandex_track_id: String(track.id),
-        title: track.title || 'Unknown Title',
-        artist,
-        artists: track.artists?.map((a) => a.name) || [artist],
-        cover_url: coverUrl,
-        cover_uri: coverUri,
-        duration_ms: track.duration_ms || 0,
-        available: track.available !== false,
-      };
-    });
+    return tracks.map(track => ({
+      yandex_track_id: track.id.toString(),
+      title: track.title,
+      artist: track.artists?.[0]?.name || 'Неизвестный исполнитель',
+      artists: track.artists || [],
+      cover_uri: track.coverUri || null,
+      cover_url: track.coverUri ? `https://${track.coverUri.replace('%%', '400x400')}` : null,
+      duration_ms: track.durationMs,
+      available: track.available,
+    }));
   } catch (error) {
-    console.error('Yandex Music search error:', error.message);
-    if (error.response?.data) {
-      console.error('API response:', JSON.stringify(error.response.data));
-    }
-    return [];
+    console.error('Yandex search error:', error.response?.data || error.message);
+    throw new Error('Ошибка при поиске треков');
   }
 };
 
 /**
- * Получение метаданных трека по ID
- * @param {string|number} trackId - Yandex трек ID
- * @returns {Promise<Object|null>} - Данные трека или null
+ * Получение информации о треке по ID
+ * @param {string|number} trackId - Яндекс ID трека
+ * @param {string} accessToken - Токен пользователя
+ * @returns {Promise<Object>} - Информация о треке
  */
-export const getTrackById = async (trackId) => {
+export const getTrackById = async (trackId, accessToken) => {
   try {
-    const response = await axios.get(`${YANDEX_API_BASE}/tracks/${trackId}`);
+    const response = await axios.get(`${YANDEX_API_BASE}/tracks/${trackId}`, {
+      headers: {
+        Authorization: `OAuth ${accessToken}`,
+      },
+    });
+
     const track = response.data.result?.[0];
-
-    if (!track) return null;
-
-    const artist = track.artists?.[0]?.name || 'Unknown Artist';
-    const coverUri = track.cover_uri || '';
-    const coverUrl = coverUri
-      ? coverUri.replace('%%', '400x400')
-      : 'https://via.placeholder.com/400?text=No+Cover';
+    if (!track) {
+      throw new Error('Трек не найден');
+    }
 
     return {
-      yandex_track_id: String(track.id),
-      title: track.title || 'Unknown Title',
-      artist,
-      artists: track.artists?.map((a) => a.name) || [artist],
-      cover_url: coverUrl,
-      cover_uri: coverUri,
-      duration_ms: track.duration_ms || 0,
-      available: track.available !== false,
+      yandex_track_id: track.id.toString(),
+      title: track.title,
+      artist: track.artists?.[0]?.name || 'Неизвестный исполнитель',
+      artists: track.artists || [],
+      cover_uri: track.coverUri || null,
+      cover_url: track.coverUri ? `https://${track.coverUri.replace('%%', '400x400')}` : null,
+      duration_ms: track.durationMs,
+      available: track.available,
     };
   } catch (error) {
-    console.error('Get track by ID error:', error.message);
-    return null;
+    console.error('Get track error:', error.response?.data || error.message);
+    throw new Error('Ошибка при получении информации о треке');
   }
 };
 
 /**
- * Сохранение/обновление трека в локальной БД (кэш метаданных)
+ * Сохранение трека в кэш БД
  * @param {Object} trackData - Данные трека
- * @returns {Promise<Object>} - Сохраненный трек с ID из БД
+ * @returns {Promise<number>} - ID трека в БД
  */
 export const saveTrackToCache = async (trackData) => {
   const { yandex_track_id, title, artist, cover_url, cover_uri, duration_ms } = trackData;
@@ -124,70 +94,274 @@ export const saveTrackToCache = async (trackData) => {
       cover_url = EXCLUDED.cover_url,
       cover_uri = EXCLUDED.cover_uri,
       duration_ms = EXCLUDED.duration_ms
-    RETURNING id, yandex_track_id, title, artist, cover_url, duration_ms
+    RETURNING id
   `;
 
-  const values = [yandex_track_id, title, artist, cover_url, cover_uri || null, duration_ms];
+  const values = [yandex_track_id, title, artist, cover_url, cover_uri, duration_ms];
   const result = await pool.query(query, values);
 
+  return result.rows[0].id;
+};
+
+/**
+ * Добавление трека в очередь комнаты
+ * @param {number} roomId - ID комнаты
+ * @param {number} trackId - ID трека в БД
+ * @param {number} userId - ID пользователя
+ * @returns {Promise<Object>} - Запись в очереди
+ */
+export const addTrackToRoomQueue = async (roomId, trackId, userId) => {
+  const query = `
+    INSERT INTO room_tracks (room_id, track_id, added_by_user_id, status, score)
+    VALUES ($1, $2, $3, 'queued', 0)
+    ON CONFLICT (room_id, track_id, status)
+    DO UPDATE SET
+      added_at = CURRENT_TIMESTAMP,
+      added_by_user_id = EXCLUDED.added_by_user_id
+    RETURNING id
+  `;
+
+  const result = await pool.query(query, [roomId, trackId, userId]);
   return result.rows[0];
 };
 
 /**
- * Получение трека из кэша по yandex_track_id
- * @param {string} yandexTrackId - Yandex трек ID
- * @returns {Promise<Object|null>} - Данные трека или null
+ * Получение очереди треков комнаты с сортировкой
+ * @param {number} roomId - ID комнаты
+ * @returns {Promise<Array>} - Отсортированная очередь
  */
-export const getTrackFromCache = async (yandexTrackId) => {
-  const query = 'SELECT id, yandex_track_id, title, artist, cover_url, duration_ms FROM tracks WHERE yandex_track_id = $1';
-  const result = await pool.query(query, [yandexTrackId]);
-  return result.rows[0] || null;
+export const getRoomQueue = async (roomId) => {
+  const query = `
+    SELECT 
+      rt.id as room_track_id,
+      rt.score,
+      rt.status,
+      rt.added_at,
+      t.id as track_id,
+      t.yandex_track_id,
+      t.title,
+      t.artist,
+      t.artists,
+      t.cover_url,
+      t.cover_uri,
+      t.duration_ms,
+      u.id as added_by_id,
+      u.nickname as added_by_name
+    FROM room_tracks rt
+    JOIN tracks t ON rt.track_id = t.id
+    LEFT JOIN users u ON rt.added_by_user_id = u.id
+    WHERE rt.room_id = $1 AND rt.status IN ('queued', 'playing')
+    ORDER BY 
+      CASE WHEN rt.status = 'playing' THEN 0 ELSE 1 END,
+      rt.score DESC,
+      rt.added_at ASC
+  `;
+
+  const result = await pool.query(query, [roomId]);
+  
+  return result.rows.map(row => ({
+    room_track_id: row.room_track_id,
+    yandex_track_id: row.yandex_track_id,
+    title: row.title,
+    artist: row.artist,
+    artists: row.artists || [],
+    cover_url: row.cover_url,
+    cover_uri: row.cover_uri,
+    duration_ms: row.duration_ms,
+    score: row.score,
+    status: row.status,
+    added_by: {
+      id: row.added_by_id,
+      name: row.added_by_name,
+    },
+    added_at: row.added_at,
+  }));
 };
 
 /**
- * Добавление трека в личный плейлист пользователя (эмуляция)
- * Так как официальное API Яндекс Музыки для плейлистов недоступно (2026),
- * сохраняем трек в таблицу user_saved_tracks
- * @param {number} userId - ID пользователя в БД
- * @param {number} trackId - ID трека в БД
- * @returns {Promise<Object>} - Результат операции
+ * Голосование за трек
+ * @param {number} roomTrackId - ID записи в room_tracks
+ * @param {number} userId - ID пользователя
+ * @param {number} value - Значение голоса (1 или -1)
+ * @returns {Promise<Object>} - Результат голосования
  */
-export const saveTrackToUserPlaylist = async (userId, trackId) => {
-  // Проверяем, не сохранен ли уже трек
-  const checkQuery = `
-    SELECT id FROM user_saved_tracks
-    WHERE user_id = $1 AND track_id = $2
-  `;
-  const checkResult = await pool.query(checkQuery, [userId, trackId]);
+export const voteForTrack = async (roomTrackId, userId, value) => {
+  // Проверяем существующий голос
+  const existingVote = await pool.query(
+    'SELECT id, value FROM votes WHERE room_track_id = $1 AND user_id = $2',
+    [roomTrackId, userId]
+  );
 
-  if (checkResult.rows.length > 0) {
-    return { success: false, message: 'Track already saved' };
+  let scoreChange = value;
+
+  if (existingVote.rows.length > 0) {
+    // Если голос уже есть
+    const currentVote = existingVote.rows[0].value;
+    
+    if (currentVote === value) {
+      // Тот же голос - убираем его
+      await pool.query('DELETE FROM votes WHERE room_track_id = $1 AND user_id = $2', [roomTrackId, userId]);
+      scoreChange = -value;
+    } else {
+      // Меняем голос
+      await pool.query('UPDATE votes SET value = $1 WHERE room_track_id = $2 AND user_id = $3', [value, roomTrackId, userId]);
+      scoreChange = value * 2; // Меняем с -1 на 1 или наоборот = изменение на 2
+    }
+  } else {
+    // Новый голос
+    await pool.query(
+      'INSERT INTO votes (room_track_id, user_id, value) VALUES ($1, $2, $3)',
+      [roomTrackId, userId, value]
+    );
   }
 
-  // Сохраняем трек
-  const insertQuery = `
-    INSERT INTO user_saved_tracks (user_id, track_id, saved_at)
-    VALUES ($1, $2, CURRENT_TIMESTAMP)
-    RETURNING id, user_id, track_id, saved_at
-  `;
-  const result = await pool.query(insertQuery, [userId, trackId]);
+  // Обновляем score трека
+  await pool.query(
+    'UPDATE room_tracks SET score = score + $1 WHERE id = $2',
+    [scoreChange, roomTrackId]
+  );
 
-  return { success: true, message: 'Track saved successfully', data: result.rows[0] };
+  return { success: true, scoreChange };
 };
 
 /**
- * Получение сохраненных треков пользователя
- * @param {number} userId - ID пользователя в БД
- * @returns {Promise<Array>} - Массив сохраненных треков
+ * Добавление трека в личный плейлист пользователя Яндекс
+ * @param {string} yandexTrackId - Яндекс ID трека
+ * @param {string} accessToken - Токен пользователя
+ * @param {number} yandexUserId - Яндекс ID пользователя
+ * @returns {Promise<Object>} - Результат
  */
-export const getUserSavedTracks = async (userId) => {
+export const addTrackToUserPlaylist = async (yandexTrackId, accessToken, yandexUserId) => {
+  try {
+    // Сначала получим список плейлистов пользователя или создадим новый
+    // Для простоты добавляем в "Мне нравится" (плейлист по умолчанию)
+    
+    const response = await axios.post(
+      `${YANDEX_API_BASE}/users/${yandexUserId}/tracks/like`,
+      {
+        trackId: yandexTrackId,
+      },
+      {
+        headers: {
+          Authorization: `OAuth ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    return { success: true, message: 'Трек добавлен в "Мне нравится"' };
+  } catch (error) {
+    console.error('Add to playlist error:', error.response?.data || error.message);
+    throw new Error('Ошибка при добавлении трека в плейлист');
+  }
+};
+
+/**
+ * Получение текущего трека в комнате
+ * @param {number} roomId - ID комнаты
+ * @returns {Promise<Object|null>} - Текущий воспроизводимый трек
+ */
+export const getCurrentTrackInRoom = async (roomId) => {
   const query = `
-    SELECT ust.id, ust.saved_at, t.yandex_track_id, t.title, t.artist, t.cover_url, t.duration_ms
-    FROM user_saved_tracks ust
-    JOIN tracks t ON ust.track_id = t.id
-    WHERE ust.user_id = $1
-    ORDER BY ust.saved_at DESC
+    SELECT 
+      rt.id as room_track_id,
+      t.id as track_id,
+      t.yandex_track_id,
+      t.title,
+      t.artist,
+      t.artists,
+      t.cover_url,
+      t.cover_uri,
+      t.duration_ms
+    FROM room_tracks rt
+    JOIN tracks t ON rt.track_id = t.id
+    WHERE rt.room_id = $1 AND rt.status = 'playing'
+    LIMIT 1
   `;
-  const result = await pool.query(query, [userId]);
-  return result.rows;
+
+  const result = await pool.query(query, [roomId]);
+  
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  return {
+    room_track_id: row.room_track_id,
+    yandex_track_id: row.yandex_track_id,
+    title: row.title,
+    artist: row.artist,
+    artists: row.artists || [],
+    cover_url: row.cover_url,
+    cover_uri: row.cover_uri,
+    duration_ms: row.duration_ms,
+  };
+};
+
+/**
+ * Установка трека как "воспроизводимый" (playing)
+ * @param {number} roomId - ID комнаты
+ * @param {number} roomTrackId - ID записи в room_tracks
+ * @returns {Promise<void>}
+ */
+export const setTrackAsPlaying = async (roomId, roomTrackId) => {
+  // Сначала сбрасываем все playing треки в played
+  await pool.query(
+    "UPDATE room_tracks SET status = 'played' WHERE room_id = $1 AND status = 'playing'",
+    [roomId]
+  );
+
+  // Устанавливаем новый трек как playing
+  await pool.query(
+    "UPDATE room_tracks SET status = 'playing' WHERE id = $1",
+    [roomTrackId]
+  );
+};
+
+/**
+ * Удаление трека из очереди
+ * @param {number} roomTrackId - ID записи в room_tracks
+ * @returns {Promise<void>}
+ */
+export const removeTrackFromQueue = async (roomTrackId) => {
+  await pool.query('DELETE FROM room_tracks WHERE id = $1', [roomTrackId]);
+};
+
+/**
+ * Получение следующего трека из очереди
+ * @param {number} roomId - ID комнаты
+ * @returns {Promise<Object|null>} - Следующий трек
+ */
+export const getNextTrackInQueue = async (roomId) => {
+  const query = `
+    SELECT 
+      rt.id as room_track_id,
+      t.id as track_id,
+      t.yandex_track_id,
+      t.title,
+      t.artist,
+      t.artists,
+      t.cover_url,
+      t.cover_uri,
+      t.duration_ms
+    FROM room_tracks rt
+    JOIN tracks t ON rt.track_id = t.id
+    WHERE rt.room_id = $1 AND rt.status = 'queued'
+    ORDER BY rt.score DESC, rt.added_at ASC
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [roomId]);
+  
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  return {
+    room_track_id: row.room_track_id,
+    yandex_track_id: row.yandex_track_id,
+    title: row.title,
+    artist: row.artist,
+    artists: row.artists || [],
+    cover_url: row.cover_url,
+    cover_uri: row.cover_uri,
+    duration_ms: row.duration_ms,
+  };
 };

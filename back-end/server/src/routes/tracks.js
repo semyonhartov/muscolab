@@ -1,48 +1,43 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import {
-  searchTracksHandler,
-  getTrackHandler,
-  saveTrackHandler,
-  getSavedTracksHandler,
-  removeSavedTrackHandler
+  searchTracks,
+  addTrackToRoom,
+  voteTrack,
+  saveTrackToPlaylist,
+  getRoomQueueHandler
 } from '../controllers/tracksController.js';
 
 const router = Router();
 
 /**
- * @route GET /api/tracks/search?q=...
- * @desc Поиск треков через API Яндекс Музыки
- * @access Private
+ * Поиск треков в Яндекс Музыке
+ * @route GET /tracks/search?q=...
  */
-router.get('/search', requireAuth, searchTracksHandler);
+router.get('/search', requireAuth, searchTracks);
 
 /**
- * @route GET /api/tracks/:id
- * @desc Получение трека по ID
- * @access Private
+ * Добавление трека в очередь комнаты
+ * @route POST /tracks/:yandexId/add-to-room/:roomId
  */
-router.get('/:id', requireAuth, getTrackHandler);
+router.post('/:yandexId/add-to-room/:roomId', requireAuth, addTrackToRoom);
 
 /**
- * @route POST /api/tracks/:id/save
- * @desc Добавление трека в личный плейлист пользователя
- * @access Private
+ * Голосование за трек
+ * @route POST /tracks/vote
  */
-router.post('/:id/save', requireAuth, saveTrackHandler);
+router.post('/vote', requireAuth, voteTrack);
 
 /**
- * @route GET /api/tracks/saved
- * @desc Получение сохраненных треков пользователя
- * @access Private
+ * Добавление трека в личный плейлист пользователя
+ * @route POST /tracks/:yandexId/save
  */
-router.get('/saved', requireAuth, getSavedTracksHandler);
+router.post('/:yandexId/save', requireAuth, saveTrackToPlaylist);
 
 /**
- * @route DELETE /api/tracks/saved/:trackId
- * @desc Удаление трека из сохраненных
- * @access Private
+ * Получение очереди комнаты
+ * @route GET /rooms/:roomId/queue
  */
-router.delete('/saved/:trackId', requireAuth, removeSavedTrackHandler);
+router.get('/rooms/:roomId/queue', requireAuth, getRoomQueueHandler);
 
 export default router;

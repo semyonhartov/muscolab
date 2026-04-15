@@ -1,72 +1,50 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import {
-  createRoomHandler,
-  joinRoomHandler,
-  getRoomQueueHandler,
-  addTrackToRoomHandler,
-  removeTrackFromRoomHandler,
-  voteTrackHandler,
-  nextTrackHandler,
-  endRoomHandler
+  createRoom,
+  joinRoom,
+  leaveRoom,
+  getRoomState,
+  removeTrackFromRoomQueue,
+  nextTrack
 } from '../controllers/roomsController.js';
 
 const router = Router();
 
 /**
- * @route POST /api/rooms
- * @desc Создание новой комнаты
- * @access Private
+ * Создание комнаты
+ * @route POST /rooms
  */
-router.post('/', requireAuth, createRoomHandler);
+router.post('/', requireAuth, createRoom);
 
 /**
- * @route POST /api/rooms/:code/join
- * @desc Присоединение к комнате по коду
- * @access Private
+ * Присоединение к комнате по коду
+ * @route POST /rooms/:code/join
  */
-router.post('/:code/join', requireAuth, joinRoomHandler);
+router.post('/:code/join', requireAuth, joinRoom);
 
 /**
- * @route GET /api/rooms/:id/queue
- * @desc Получение очереди треков в комнате
- * @access Private
+ * Выход из комнаты
+ * @route POST /rooms/:id/leave
  */
-router.get('/:id/queue', requireAuth, getRoomQueueHandler);
+router.post('/:id/leave', requireAuth, leaveRoom);
 
 /**
- * @route POST /api/rooms/:roomId/tracks
- * @desc Добавление трека в очередь комнаты
- * @access Private
+ * Получение состояния комнаты
+ * @route GET /rooms/:id/state
  */
-router.post('/:roomId/tracks', requireAuth, addTrackToRoomHandler);
+router.get('/:id/state', requireAuth, getRoomState);
 
 /**
- * @route DELETE /api/rooms/:roomId/tracks/:roomTrackId
- * @desc Удаление трека из очереди
- * @access Private
+ * Удаление трека из очереди (только хост)
+ * @route DELETE /rooms/:roomId/tracks/:roomTrackId
  */
-router.delete('/:roomId/tracks/:roomTrackId', requireAuth, removeTrackFromRoomHandler);
+router.delete('/:roomId/tracks/:roomTrackId', requireAuth, removeTrackFromRoomQueue);
 
 /**
- * @route POST /api/rooms/:roomId/tracks/:roomTrackId/vote
- * @desc Голосование за трек (+1/-1)
- * @access Private
+ * Переход к следующему треку (только хост)
+ * @route POST /rooms/:roomId/next-track
  */
-router.post('/:roomId/tracks/:roomTrackId/vote', requireAuth, voteTrackHandler);
-
-/**
- * @route POST /api/rooms/:roomId/next
- * @desc Переход к следующему треку (только Host)
- * @access Private
- */
-router.post('/:roomId/next', requireAuth, nextTrackHandler);
-
-/**
- * @route POST /api/rooms/:roomId/end
- * @desc Завершение комнаты (только Host)
- * @access Private
- */
-router.post('/:roomId/end', requireAuth, endRoomHandler);
+router.post('/:roomId/next-track', requireAuth, nextTrack);
 
 export default router;

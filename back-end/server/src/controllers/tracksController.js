@@ -1,153 +1,199 @@
 import {
-  searchTracks,
-  getTrackById,
+  searchTracks as yandexSearchTracks,
   saveTrackToCache,
-  getTrackFromCache,
-  saveTrackToUserPlaylist,
-  getUserSavedTracks
+  addTrackToRoomQueue,
+  getRoomQueue,
+  voteForTrack,
+  addTrackToUserPlaylist
 } from '../services/yandexMusicService.js';
+import { getUserValidToken as getUserToken } from '../services/yandexAuthService.js';
 import pool from '../config/database.js';
 
 /**
- * Поиск треков через API Яндекс Музыки
+ * Поиск треков в Яндекс Музыке
  * GET /api/tracks/search?q=...
  */
-export const searchTracksHandler = async (req, res) => {
+export const searchTracks = async (req, res) => {
   try {
     const { q } = req.query;
+    const userId = req.user.userId;
 
-    if (!q || q.trim().length === 0) {
-      return res.status(400).json({ error: 'Search query is required' });
+    if (!q || q.trim().length < 2) {
+      return res.status(400).json({ error: 'Поисковый запрос должен содержать минимум 2 символа' });
     }
 
-    // Поиск через API Яндекс
-    const tracks = await searchTracks(q.trim(), 20);
+    // Получаем токен пользователя для доступа к API Яндекса
+    const accessToken = await getUserToken(userId);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Требуется повторная авторизация' });
+    }
 
-    res.json({
-      tracks,
-      total: tracks.length,
-      query: q,
-    });
+    // Поиск через Яндекс API
+    const tracks = await yandexSearchTracks(q, accessToken);
+
+    res.json({ tracks, total: tracks.length });
   } catch (error) {
     console.error('Search tracks error:', error.message);
-    res.status(500).json({ error: 'Failed to search tracks' });
+    res.status(500).json({ error: error.message || 'Ошибка при поиске треков' });
   }
 };
 
 /**
- * Получение трека по ID
- * GET /api/tracks/:id
+ * Добавление трека в очередь комнаты
+ * POST /api/tracks/:yandexId/add-to-room/:roomId
  */
-export const getTrackHandler = async (req, res) => {
+export const addTrackToRoom = async (req, res) => {
+  const client = await pool.connect();
+  
   try {
-    const { id } = req.params;
+    const { yandexId } = req.params;
+    const { roomId } = req.params;
+    const userId = req.user.userId;
 
-    // Сначала пробуем получить из кэша
-    let track = await getTrackFromCache(id);
+    // Проверка: пользователь состоит в комнате
+    const roomCheck = await client.query(
+      'SELECT id FROM rooms WHERE id = $1 AND is_active = TRUE',
+      [roomId]
+    );
 
-    // Если нет в кэше, запрашиваем API
-    if (!track) {
-      track = await getTrackById(id);
-      if (track) {
-        await saveTrackToCache(track);
-      }
+    if (roomCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Комната не найдена или неактивна' });
     }
 
-    if (!track) {
-      return res.status(404).json({ error: 'Track not found' });
+    // Получаем информацию о треке из Яндекс API
+    const accessToken = await getUserToken(userId);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Требуется повторная авторизация' });
     }
 
-    res.json({ track });
+    // Импортируем функцию динамически, чтобы избежать циклической зависимости
+    const { getTrackById } = await import('../services/yandexMusicService.js');
+    const trackInfo = await getTrackById(yandexId, accessToken);
+
+    // Сохраняем трек в кэш БД
+    const trackDbId = await saveTrackToCache(trackInfo);
+
+    // Проверяем, есть ли уже этот трек в очереди
+    const existingTrack = await client.query(
+      'SELECT id FROM room_tracks WHERE room_id = $1 AND track_id = $2 AND status IN (\'queued\', \'playing\')',
+      [roomId, trackDbId]
+    );
+
+    if (existingTrack.rows.length > 0) {
+      return res.status(400).json({ error: 'Этот трек уже есть в очереди' });
+    }
+
+    // Добавляем трек в очередь
+    const result = await addTrackToRoomQueue(roomId, trackDbId, userId);
+
+    // Получаем обновленную очередь
+    const queue = await getRoomQueue(roomId);
+
+    res.json({ 
+      success: true, 
+      message: 'Трек добавлен в очередь',
+      queue 
+    });
   } catch (error) {
-    console.error('Get track error:', error.message);
-    res.status(500).json({ error: 'Failed to get track' });
+    console.error('Add track to room error:', error.message);
+    res.status(500).json({ error: error.message || 'Ошибка при добавлении трека' });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Голосование за трек
+ * POST /api/tracks/vote
+ */
+export const voteTrack = async (req, res) => {
+  try {
+    const { roomTrackId, value } = req.body;
+    const userId = req.user.userId;
+
+    if (!roomTrackId || !value) {
+      return res.status(400).json({ error: 'Необходимо указать roomTrackId и value' });
+    }
+
+    if (value !== 1 && value !== -1) {
+      return res.status(400).json({ error: 'Значение голоса должно быть 1 или -1' });
+    }
+
+    // Получаем room_track для определения комнаты
+    const roomTrack = await pool.query(
+      'SELECT room_id FROM room_tracks WHERE id = $1',
+      [roomTrackId]
+    );
+
+    if (roomTrack.rows.length === 0) {
+      return res.status(404).json({ error: 'Запись трека не найдена' });
+    }
+
+    const roomId = roomTrack.rows[0].room_id;
+
+    // Голосуем
+    await voteForTrack(roomTrackId, userId, value);
+
+    // Получаем обновленную очередь
+    const queue = await getRoomQueue(roomId);
+
+    res.json({ success: true, queue });
+  } catch (error) {
+    console.error('Vote track error:', error.message);
+    res.status(500).json({ error: error.message || 'Ошибка при голосовании' });
   }
 };
 
 /**
  * Добавление трека в личный плейлист пользователя
- * POST /api/tracks/:id/save
+ * POST /api/tracks/:yandexId/save
  */
-export const saveTrackHandler = async (req, res) => {
+export const saveTrackToPlaylist = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { yandexId } = req.params;
     const userId = req.user.userId;
 
-    // Проверяем, существует ли трек в кэше
-    let track = await getTrackFromCache(id);
+    // Получаем пользователя с токеном
+    const userResult = await pool.query(
+      'SELECT yandex_id, access_token, refresh_token, token_expires_at FROM users WHERE id = $1',
+      [userId]
+    );
 
-    if (!track) {
-      // Пробуем получить из API
-      const trackData = await getTrackById(id);
-      if (!trackData) {
-        return res.status(404).json({ error: 'Track not found' });
-      }
-      track = await saveTrackToCache(trackData);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
     }
 
-    // Сохраняем в плейлист пользователя
-    const result = await saveTrackToUserPlaylist(userId, track.id);
-
-    if (!result.success) {
-      return res.status(400).json({ error: result.message });
+    const user = userResult.rows[0];
+    
+    // Импортируем функцию для получения валидного токена
+    const accessToken = await getUserToken(userId);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Требуется повторная авторизация' });
     }
 
-    res.json({
-      success: true,
-      message: result.message,
-      track: {
-        id: track.id,
-        yandex_track_id: track.yandex_track_id,
-        title: track.title,
-        artist: track.artist,
-        cover_url: track.cover_url,
-      },
-    });
+    // Добавляем трек в плейлист
+    const result = await addTrackToUserPlaylist(yandexId, accessToken, user.yandex_id);
+
+    res.json(result);
   } catch (error) {
     console.error('Save track error:', error.message);
-    res.status(500).json({ error: 'Failed to save track' });
+    res.status(500).json({ error: error.message || 'Ошибка при сохранении трека' });
   }
 };
 
 /**
- * Получение сохраненных треков пользователя
- * GET /api/tracks/saved
+ * Получение очереди комнаты
+ * GET /api/rooms/:roomId/queue
  */
-export const getSavedTracksHandler = async (req, res) => {
+export const getRoomQueueHandler = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const { roomId } = req.params;
 
-    const tracks = await getUserSavedTracks(userId);
+    const queue = await getRoomQueue(roomId);
 
-    res.json({
-      tracks,
-      total: tracks.length,
-    });
+    res.json({ queue });
   } catch (error) {
-    console.error('Get saved tracks error:', error.message);
-    res.status(500).json({ error: 'Failed to get saved tracks' });
-  }
-};
-
-/**
- * Удаление трека из сохраненных
- * DELETE /api/tracks/saved/:trackId
- */
-export const removeSavedTrackHandler = async (req, res) => {
-  try {
-    const { trackId } = req.params;
-    const userId = req.user.userId;
-
-    const query = 'DELETE FROM user_saved_tracks WHERE user_id = $1 AND track_id = $2';
-    const result = await pool.query(query, [userId, trackId]);
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Saved track not found' });
-    }
-
-    res.json({ success: true, message: 'Track removed from saved' });
-  } catch (error) {
-    console.error('Remove saved track error:', error.message);
-    res.status(500).json({ error: 'Failed to remove saved track' });
+    console.error('Get room queue error:', error.message);
+    res.status(500).json({ error: error.message || 'Ошибка при получении очереди' });
   }
 };

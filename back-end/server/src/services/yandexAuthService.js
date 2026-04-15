@@ -3,12 +3,9 @@ import pool from '../config/database.js';
 
 const YANDEX_AUTH_BASE = 'https://oauth.yandex.ru';
 const YANDEX_API_BASE = 'https://api.music.yandex.net';
-const YANDEX_ID_API_BASE = 'https://login.yandex.ru/info';
 
 /**
  * Получение ссылки для авторизации
- * Доступные scope: login:info, login:avatar, login:email
- * Примечание: playlist:read/write недоступны в публичном OAuth (2026)
  */
 export const getAuthUrl = () => {
   const params = new URLSearchParams({
@@ -63,75 +60,28 @@ export const refreshAccessToken = async (refreshToken) => {
 
 /**
  * Получение профиля пользователя Яндекс
- * Используем Яндекс ID API (Passport) для получения данных профиля
- * Документация: https://yandex.ru/dev/id/doc/ru/user-information
  */
 export const fetchYandexProfile = async (accessToken) => {
-  try {
-    // Запрашиваем расширенную информацию о пользователе
-    const response = await axios.get(`${YANDEX_ID_API_BASE}?format=json`, {
-      headers: { Authorization: `OAuth ${accessToken}` }
-    });
-    
-    console.log('Yandex ID API response:', JSON.stringify(response.data, null, 2));
-    
-    if (!response.data || !response.data.id) {
-      throw new Error('Invalid response from Yandex ID API: id is missing');
-    }
-    
-    const profile = response.data;
-    
-    // Формируем URL аватара
-    let avatarUrl = null;
-    if (profile.default_avatar_id) {
-      avatarUrl = `https://avatars.yandex.net/get-yapic/${profile.default_avatar_id}/islands-200`;
-    }
-    
-    // Форматируем данные профиля
-    return {
-      id: String(profile.id),
-      login: profile.login || `user_${profile.id}`,
-      avatar: avatarUrl,
-      name: profile.display_name || profile.real_name || null,
-      first_name: profile.first_name || null,
-      last_name: profile.last_name || null,
-      email: profile.default_email || null,
-    };
-  } catch (error) {
-    console.error('Fetch Yandex profile error:', error.message);
-    if (error.response) {
-      console.error('Yandex ID API error response:', error.response.status, error.response.data);
-    }
-    throw error;
-  }
+  const response = await axios.get(`${YANDEX_API_BASE}/account/status`, {
+    headers: { Authorization: `OAuth ${accessToken}` }
+  });
+  return response.data.account;
 };
 
 /**
  * Сохранение/обновление пользователя в БД
  */
 export const saveUserToDb = async (yandexProfile, tokens) => {
-  const { 
-    id: yandex_id, 
-    login: nickname, 
-    avatar,
-    name,
-    second_name,
-    first_name
-  } = yandexProfile;
-  
-  if (!yandex_id) {
-    throw new Error('Yandex profile is missing required field: id');
-  }
-  
+  const { id: yandex_id, login: nickname, avatar } = yandexProfile;
   const { accessToken, refreshToken, expiresIn } = tokens;
-
+  
   const expiresAt = new Date(Date.now() + expiresIn * 1000);
-
+  
   const query = `
     INSERT INTO users (yandex_id, nickname, avatar_url, access_token, refresh_token, token_expires_at)
     VALUES ($1, $2, $3, $4, $5, $6)
-    ON CONFLICT (yandex_id)
-    DO UPDATE SET
+    ON CONFLICT (yandex_id) 
+    DO UPDATE SET 
       nickname = EXCLUDED.nickname,
       avatar_url = EXCLUDED.avatar_url,
       access_token = EXCLUDED.access_token,
@@ -140,24 +90,11 @@ export const saveUserToDb = async (yandexProfile, tokens) => {
       updated_at = CURRENT_TIMESTAMP
     RETURNING id, yandex_id, nickname, avatar_url
   `;
-
-  const values = [
-    yandex_id, 
-    nickname, 
-    avatar || null, 
-    accessToken, 
-    refreshToken, 
-    expiresAt
-  ];
   
-  try {
-    const result = await pool.query(query, values);
-    return result.rows[0];
-  } catch (error) {
-    console.error('Save user to DB error:', error.message);
-    console.error('Values:', { yandex_id, nickname, avatar });
-    throw error;
-  }
+  const values = [yandex_id, nickname, avatar, accessToken, refreshToken, expiresAt];
+  const result = await pool.query(query, values);
+  
+  return result.rows[0];
 };
 
 /**

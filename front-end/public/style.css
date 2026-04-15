@@ -1,0 +1,490 @@
+/* Основные стили */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+/* Утилиты */
+.hidden {
+  display: none !important;
+}
+
+/* Карточки */
+.card {
+  background: white;
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 450px;
+  margin: 60px auto;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  text-align: center;
+}
+
+.card h1 {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.card p {
+  color: #666;
+  margin-bottom: 30px;
+}
+
+/* Кнопки */
+.btn {
+  cursor: pointer;
+  padding: 12px 24px;
+  background: #fc0;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.2s;
+  margin: 5px;
+}
+
+.btn:hover {
+  background: #e5b800;
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn-small {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.btn-primary {
+  background: #667eea;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #5a6fd6;
+}
+
+.btn-logout {
+  background: #ff4757;
+  color: white;
+}
+
+.btn-logout:hover {
+  background: #ff3344;
+}
+
+.btn-save {
+  background: #2ed573;
+  color: white;
+  margin-top: 15px;
+}
+
+.btn-save:hover {
+  background: #26c066;
+}
+
+/* Разделитель */
+.divider {
+  margin: 20px 0;
+  position: relative;
+  text-align: center;
+}
+
+.divider::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 1px;
+  background: #eee;
+}
+
+.divider span {
+  background: white;
+  padding: 0 10px;
+  position: relative;
+  color: #999;
+}
+
+/* Поля ввода */
+input[type="text"] {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #eee;
+  border-radius: 8px;
+  font-size: 14px;
+  margin: 10px 0;
+  transition: border-color 0.2s;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+/* Экран авторизации */
+#login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Основное приложение */
+#app-screen {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Шапка */
+.app-header {
+  background: white;
+  border-radius: 12px;
+  padding: 15px 25px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#display-username {
+  font-weight: 600;
+  color: #333;
+}
+
+.room-badge {
+  background: #667eea;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 13px;
+}
+
+.host-tag {
+  background: #ff4757;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-info {
+  font-size: 13px;
+  color: #666;
+}
+
+.host-active {
+  color: #2ed573;
+  font-weight: 600;
+}
+
+/* Контейнер */
+.container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .container {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Панели */
+.panel {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.panel h2 {
+  font-size: 1.3rem;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.sidebar {
+  grid-column: 1 / -1;
+}
+
+/* Плеер */
+.player-card {
+  grid-column: 1 / -1;
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  text-align: center;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.cover-art {
+  width: 200px;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+  margin-bottom: 20px;
+}
+
+#player-title {
+  font-size: 1.5rem;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+#player-artist {
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+/* Прогресс бар */
+.progress-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  background: #eee;
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  width: 0%;
+  transition: width 0.3s;
+}
+
+#current-time, #duration {
+  font-size: 12px;
+  color: #666;
+  min-width: 40px;
+}
+
+/* Поиск */
+.search-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.search-container input {
+  flex: 1;
+  margin: 0;
+}
+
+#search-loading {
+  text-align: center;
+  color: #666;
+  padding: 10px;
+}
+
+/* Списки треков */
+.track-list {
+  list-style: none;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.track-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.2s;
+}
+
+.track-list li:hover {
+  background: #f8f9fa;
+}
+
+.track-cover {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.track-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.track-name {
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-name.playing {
+  color: #667eea;
+}
+
+.track-artist-sm {
+  font-size: 13px;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vote-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 5px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.vote-btn:hover {
+  background: #f0f0f0;
+}
+
+.score {
+  min-width: 30px;
+  text-align: center;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.btn-del {
+  background: #ff4757;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-del:hover {
+  background: #ff3344;
+}
+
+/* Список пользователей */
+.users-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 20px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Уведомления (Toast) */
+.toast {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: #333;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  transition: transform 0.3s;
+  z-index: 1000;
+}
+
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Адаптивность */
+@media (max-width: 600px) {
+  .card {
+    padding: 25px;
+    margin: 20px;
+  }
+  
+  .card h1 {
+    font-size: 1.8rem;
+  }
+  
+  .app-header {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  
+  .user-info {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .cover-art {
+    width: 150px;
+    height: 150px;
+  }
+  
+  .controls {
+    flex-wrap: wrap;
+  }
+}
