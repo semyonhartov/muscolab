@@ -4,7 +4,8 @@ import {
   addTrackToRoomQueue,
   getRoomQueue,
   voteForTrack,
-  addTrackToUserPlaylist
+  addTrackToUserPlaylist,
+  getTrackStreamUrl
 } from '../services/yandexMusicService.js';
 import { getUserValidToken as getUserToken } from '../services/yandexAuthService.js';
 import pool from '../config/database.js';
@@ -203,5 +204,36 @@ export const getRoomQueueHandler = async (req, res) => {
   } catch (error) {
     console.error('Get room queue error:', error.message);
     res.status(500).json({ error: error.message || 'Ошибка при получении очереди' });
+  }
+};
+
+/**
+ * Получение прямой ссылки на аудиофайл трека
+ * GET /api/tracks/:yandexId/stream-url
+ */
+export const getTrackStreamUrlHandler = async (req, res) => {
+  try {
+    const { yandexId } = req.params;
+    const userId = req.user.userId;
+    const { quality } = req.query;
+
+    // Получаем токен пользователя
+    const accessToken = await getUserToken(userId);
+    if (!accessToken) {
+      return res.status(401).json({ error: 'Требуется повторная авторизация' });
+    }
+
+    // Получаем stream URL
+    const streamInfo = await getTrackStreamUrl(yandexId, accessToken, quality || '192');
+
+    res.json({
+      url: streamInfo.url,
+      bitrate: streamInfo.bitrate,
+      codec: streamInfo.codec,
+      expires: streamInfo.expires,
+    });
+  } catch (error) {
+    console.error('Get stream URL error:', error.message);
+    res.status(500).json({ error: error.message || 'Ошибка при получении ссылки на трек' });
   }
 };

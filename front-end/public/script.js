@@ -15,11 +15,13 @@ const app = {
     queue: [],
     currentTrack: null,
     isPlaying: false,
-    progress: 0,
-    progressInterval: null,
     socketConnected: false,
     audio: null,
     currentProgressMs: 0,
+    streamUrl: null,
+    streamUrlExpiresAt: null,
+    syncInterval: null,
+    isSeeking: false,
   },
 
   // ==================== АВТОРИЗАЦИЯ ====================
@@ -27,7 +29,7 @@ const app = {
   async checkAuthStatus() {
     const token = localStorage.getItem('jwt_token');
     const userData = localStorage.getItem('user_data');
-    
+
     if (token && userData) {
       try {
         this.state.user = JSON.parse(userData);
@@ -76,10 +78,10 @@ const app = {
         socket.connect();
 
         this.enterAppAfterLogin(userData);
-        
+
         // Очищаем URL от параметров токена
         window.history.replaceState({}, document.title, window.location.pathname);
-        
+
         console.log('✅ Callback processed successfully');
       } catch (err) {
         console.error('❌ Callback error:', err);
@@ -106,7 +108,6 @@ const app = {
     // Обновляем аватар если есть
     const userInfoEl = document.querySelector('.user-info');
     if (userData.avatar_url) {
-      // Проверяем, есть ли уже аватар
       let avatarEl = document.getElementById('user-avatar');
       if (!avatarEl) {
         avatarEl = document.createElement('img');
@@ -120,6 +121,7 @@ const app = {
     }
 
     this.setupSocketListeners();
+    this.initAudio();
 
     // Автосоздание комнаты после входа
     console.log('🏠 Auto-creating room...');
@@ -127,10 +129,166 @@ const app = {
   },
 
   logout() {
+    this.stopAudio();
     localStorage.removeItem('jwt_token');
     localStorage.removeItem('user_data');
     socket.disconnect();
     window.location.reload();
+  },
+
+  // ==================== АУДИО ПЛЕЕР ====================
+
+  initAudio() {
+    if (this.state.audio) {
+      this.state.audio.pause();
+      this.state.audio.src = '';
+    }
+    this.state.audio = new Audio();
+    this.state.audio.preload = 'auto';
+
+    // События аудио
+    this.state.audio.addEventListener('canplay', () => {
+      console.log('🎵 Audio can play, duration:', this.state.audio.duration);
+      const duration = this.state.audio.duration * 1000;
+      if (this.state.currentTrack) {
+        this.state.currentTrack.duration_ms = duration;
+        document.getElementById('duration').innerText = this.formatTime(duration);
+      }
+    });
+
+    this.state.audio.addEventListener('timeupdate', () => {
+      if (!this.state.isSeeking && this.state.audio.duration) {
+        const currentMs = this.state.audio.currentTime * 1000;
+        this.state.currentProgressMs = currentMs;
+        const progress = (currentMs / (this.state.audio.duration * 1000)) * 100;
+        document.getElementById('progress-fill').style.width = `${progress}%`;
+        document.getElementById('current-time').innerText = this.formatTime(currentMs);
+      }
+    });
+
+    this.state.audio.addEventListener('ended', () => {
+      console.log('🎵 Track ended');
+      this.state.currentProgressMs = 0;
+      if (this.state.isHost) {
+        this.nextTrack();
+      }
+    });
+
+    this.state.audio.addEventListener('error', (e) => {
+      console.error('🎵 Audio error:', e);
+      // Если ссылка истекла — пробуем получить новую
+      if (this.state.streamUrlExpiresAt && Date.now() > this.state.streamUrlExpiresAt) {
+        console.log('🔄 Stream URL expired, refreshing...');
+        this.refreshStreamUrl();
+      }
+    });
+  },
+
+  async loadStreamUrl(yandexTrackId) {
+    const token = localStorage.getItem('jwt_token');
+    if (!token) return null;
+
+    try {
+      const res = await fetch(`${API_URL}/tracks/${yandexTrackId}/stream-url`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Ошибка получения ссылки');
+      }
+
+      const data = await res.json();
+      this.state.streamUrl = data.url;
+      // expires — timestamp в секундах, конвертируем в мс
+      this.state.streamUrlExpiresAt = data.expires ? data.expires * 1000 : null;
+      console.log('🔗 Stream URL loaded:', { bitrate: data.bitrate, codec: data.codec });
+      return data.url;
+    } catch (err) {
+      console.error('Load stream URL error:', err);
+      this.showToast('Не удалось загрузить трек');
+      return null;
+    }
+  },
+
+  async refreshStreamUrl() {
+    if (this.state.currentTrack) {
+      const url = await this.loadStreamUrl(this.state.currentTrack.yandex_track_id);
+      if (url && this.state.isPlaying) {
+        const currentTime = this.state.audio.currentTime;
+        this.state.audio.src = url;
+        this.state.audio.currentTime = currentTime;
+        this.state.audio.play();
+      }
+    }
+  },
+
+  async playTrack(progressMs = 0) {
+    if (!this.state.currentTrack) return;
+
+    if (!this.state.streamUrl) {
+      const url = await this.loadStreamUrl(this.state.currentTrack.yandex_track_id);
+      if (!url) return;
+      this.state.audio.src = url;
+    }
+
+    try {
+      this.state.audio.currentTime = progressMs / 1000;
+      await this.state.audio.play();
+      this.state.isPlaying = true;
+      document.getElementById('btn-play-pause').innerText = '⏸ Pause';
+      this.startSyncHeartbeat();
+    } catch (err) {
+      console.error('Play error:', err);
+      this.showToast('Ошибка воспроизведения');
+    }
+  },
+
+  pauseTrack() {
+    this.state.audio.pause();
+    this.state.isPlaying = false;
+    this.state.currentProgressMs = this.state.audio.currentTime * 1000;
+    document.getElementById('btn-play-pause').innerText = '▶ Play';
+    this.stopSyncHeartbeat();
+  },
+
+  seekTo(progressMs) {
+    this.state.isSeeking = true;
+    this.state.audio.currentTime = progressMs / 1000;
+    this.state.currentProgressMs = progressMs;
+    this.state.isSeeking = false;
+  },
+
+  stopAudio() {
+    if (this.state.audio) {
+      this.state.audio.pause();
+      this.state.audio.src = '';
+    }
+    this.stopSyncHeartbeat();
+    this.state.isPlaying = false;
+    this.state.streamUrl = null;
+    this.state.streamUrlExpiresAt = null;
+  },
+
+  startSyncHeartbeat() {
+    this.stopSyncHeartbeat();
+    // Отправляем прогресс каждые 5 секунд для синхронизации
+    this.state.syncInterval = setInterval(() => {
+      if (this.state.isHost && this.state.roomId && this.state.audio.duration) {
+        socket.emit('sync_heartbeat', {
+          roomId: this.state.roomId,
+          progressMs: this.state.audio.currentTime * 1000,
+          isPlaying: this.state.isPlaying,
+        });
+      }
+    }, 5000);
+  },
+
+  stopSyncHeartbeat() {
+    if (this.state.syncInterval) {
+      clearInterval(this.state.syncInterval);
+      this.state.syncInterval = null;
+    }
   },
 
   // ==================== СОЗДАНИЕ/ВХОД В КОМНАТУ ====================
@@ -177,7 +335,7 @@ const app = {
 
       const data = await res.json();
       console.log('✅ Room created:', data.room);
-      
+
       this.initRoom(data.room);
     } catch (err) {
       console.error('❌ Create room error:', err);
@@ -229,9 +387,12 @@ const app = {
     this.state.queue = room.queue || [];
     this.state.currentTrack = room.currentTrack;
 
+    // Сброс аудио при смене комнаты
+    this.stopAudio();
+
     // Обновляем UI
     document.getElementById('display-room-code').innerText = `#${this.state.roomCode}`;
-    
+
     if (this.state.isHost) {
       document.getElementById('is-host-badge').classList.remove('hidden');
       document.getElementById('host-status-msg').innerText = 'Режим ведущего: управление активно';
@@ -273,6 +434,45 @@ const app = {
       this.renderQueue();
     });
 
+    // Синхронное воспроизведение
+    socket.on('sync_play', ({ currentTrack, progressMs, timestamp }) => {
+      console.log('🎵 Sync play received:', { progressMs, timestamp });
+      if (currentTrack) {
+        this.state.currentTrack = currentTrack;
+        this.updatePlayerUI();
+        // Компенсация задержки сети
+        const delay = Date.now() - timestamp;
+        const adjustedProgress = progressMs + delay;
+        this.playTrack(adjustedProgress);
+      }
+    });
+
+    // Синхронная пауза
+    socket.on('sync_pause', ({ progressMs }) => {
+      console.log('⏸ Sync pause received:', progressMs);
+      this.seekTo(progressMs);
+      this.pauseTrack();
+    });
+
+    // Синхронный seek
+    socket.on('sync_seek', ({ progressMs }) => {
+      console.log('⏩ Sync seek received:', progressMs);
+      this.seekTo(progressMs);
+    });
+
+    // Heartbeat синхронизация — коррекция рассинхрона
+    socket.on('sync_heartbeat', ({ progressMs, isPlaying }) => {
+      if (!this.state.isHost && this.state.audio.duration) {
+        const localProgress = this.state.audio.currentTime * 1000;
+        const diff = Math.abs(localProgress - progressMs);
+        // Если рассинхрон > 1 секунды — корректируем
+        if (diff > 1000) {
+          console.log('🔄 Sync correction:', { local: localProgress, remote: progressMs, diff });
+          this.seekTo(progressMs);
+        }
+      }
+    });
+
     socket.on('player_state', ({ status, currentTrack, timestamp, progressMs }) => {
       console.log('Player state updated:', status, 'progress:', progressMs);
       if (currentTrack) {
@@ -290,7 +490,7 @@ const app = {
       this.state.currentTrack = currentTrack;
       this.state.queue = queue || [];
       this.state.isPlaying = status === 'playing';
-      this.state.currentProgressMs = 0; // Сброс прогресса при новом треке
+      this.state.currentProgressMs = 0;
       this.renderQueue();
       this.updatePlayerUI();
 
@@ -306,13 +506,13 @@ const app = {
 
   async refreshRoomState() {
     if (!this.state.roomId) return;
-    
+
     const token = localStorage.getItem('jwt_token');
     try {
       const res = await fetch(`${API_URL}/rooms/${this.state.roomId}/state`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      
+
       if (res.ok) {
         const data = await res.json();
         this.state.users = data.room.users || [];
@@ -343,7 +543,7 @@ const app = {
 
     const token = localStorage.getItem('jwt_token');
     console.log('🔑 Token exists:', !!token);
-    
+
     if (!token) {
       alert('Вы не авторизованы. Войдите через Яндекс.');
       this.showLoginScreen();
@@ -356,7 +556,7 @@ const app = {
     try {
       const url = `${API_URL}/tracks/search?q=${encodeURIComponent(query)}`;
       console.log('📡 Fetch URL:', url);
-      
+
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -420,19 +620,34 @@ const app = {
       });
 
       if (!res.ok) {
-        const error = await res.json();
-        if (error.error && error.error.includes('уже есть')) {
-          this.showToast('Этот трек уже есть в очереди');
-          return;
+        let errorMessage = 'Ошибка при добавлении';
+        try {
+          const error = await res.json();
+          if (error.error && error.error.includes('уже есть')) {
+            this.showToast('Этот трек уже есть в очереди');
+            return;
+          }
+          errorMessage = error.error || errorMessage;
+        } catch (parseError) {
+          console.error('Failed to parse error response:', parseError);
+          errorMessage = `Ошибка сервера: ${res.status} ${res.statusText}`;
         }
-        throw new Error(error.error || 'Ошибка при добавлении');
+        throw new Error(errorMessage);
       }
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseError) {
+        console.error('Failed to parse success response:', parseError);
+        this.showToast('Ошибка обработки ответа сервера');
+        return;
+      }
+
       this.state.queue = data.queue;
       this.renderQueue();
       this.showToast('Трек добавлен в очередь');
-      
+
       // Очищаем поиск
       document.getElementById('search-query').value = '';
       document.getElementById('search-results').innerHTML = '';
@@ -478,24 +693,34 @@ const app = {
 
   // ==================== ПЛЕЕР ====================
 
-  togglePlay() {
+  async togglePlay() {
     if (!this.state.isHost) {
       this.showToast('Только ведущий может управлять плеером!');
       return;
     }
 
-    this.state.isPlaying = !this.state.isPlaying;
+    if (!this.state.currentTrack) {
+      this.showToast('Нет текущего трека');
+      return;
+    }
 
-    // Отправляем состояние через Socket.io
-    socket.emit('player_state', {
-      roomId: this.state.roomId,
-      status: this.state.isPlaying ? 'playing' : 'paused',
-      currentTrack: this.state.currentTrack,
-      timestamp: Date.now(),
-      progressMs: this.state.currentProgressMs,
-    });
-
-    this.updatePlayerUI();
+    if (this.state.isPlaying) {
+      // Пауза
+      this.pauseTrack();
+      socket.emit('sync_pause', {
+        roomId: this.state.roomId,
+        progressMs: this.state.currentProgressMs,
+      });
+    } else {
+      // Воспроизведение
+      await this.playTrack(this.state.currentProgressMs);
+      socket.emit('sync_play', {
+        roomId: this.state.roomId,
+        currentTrack: this.state.currentTrack,
+        progressMs: this.state.currentProgressMs,
+        timestamp: Date.now(),
+      });
+    }
   },
 
   async nextTrack() {
@@ -503,6 +728,9 @@ const app = {
       this.showToast('Только ведущий может переключать треки!');
       return;
     }
+
+    // Останавливаем текущий трек
+    this.stopAudio();
 
     const token = localStorage.getItem('jwt_token');
     try {
@@ -520,10 +748,23 @@ const app = {
       if (data.currentTrack) {
         this.state.currentTrack = data.currentTrack;
         this.state.queue = data.queue || [];
-        this.state.isPlaying = true;
-        this.state.currentProgressMs = 0; // Сброс прогресса при новом треке
+        this.state.currentProgressMs = 0;
+        this.state.streamUrl = null;
+        this.state.streamUrlExpiresAt = null;
         this.renderQueue();
         this.updatePlayerUI();
+
+        // Загружаем и воспроизводим новый трек
+        await this.playTrack(0);
+
+        // Уведомляем участников
+        socket.emit('sync_play', {
+          roomId: this.state.roomId,
+          currentTrack: this.state.currentTrack,
+          progressMs: 0,
+          timestamp: Date.now(),
+        });
+
         this.showToast(`Сейчас играет: ${data.currentTrack.title}`);
       } else {
         this.state.currentTrack = null;
@@ -531,9 +772,6 @@ const app = {
         this.updatePlayerUI();
         this.showToast('Очередь пуста');
       }
-
-      // Уведомляем участников через Socket.io
-      socket.emit('next_track', { roomId: this.state.roomId });
     } catch (err) {
       console.error('Next track error:', err);
       this.showToast(err.message);
@@ -581,9 +819,11 @@ const app = {
       coverEl.src = this.state.currentTrack.cover_url || 'https://via.placeholder.com/300';
       saveBtn.style.display = 'inline-block';
 
-      // Обновляем длительность
+      // Обновляем длительность из метаданных (будет уточнено при загрузке аудио)
       const duration = this.state.currentTrack.duration_ms || 0;
-      document.getElementById('duration').innerText = this.formatTime(duration);
+      if (duration > 0) {
+        document.getElementById('duration').innerText = this.formatTime(duration);
+      }
     } else {
       titleEl.innerText = 'Ожидание...';
       artistEl.innerText = 'Очередь пуста';
@@ -593,48 +833,30 @@ const app = {
     }
 
     playBtn.innerText = this.state.isPlaying ? '⏸ Pause' : '▶ Play';
-
-    // Обновляем прогресс бар
-    if (this.state.isPlaying && this.state.currentTrack) {
-      this.startProgress(this.state.currentProgressMs);
-    } else {
-      // При паузе не сбрасываем прогресс, просто останавливаем интервал
-      this.stopProgress();
-    }
   },
 
-  startProgress(startFromMs = 0) {
-    this.stopProgress();
-    const startTime = Date.now() - startFromMs;
-    const duration = this.state.currentTrack?.duration_ms || 0;
+  // ==================== ПРОГРЕСС БАР ====================
 
-    this.state.progressInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      this.state.currentProgressMs = elapsed;
-      const progress = Math.min((elapsed / duration) * 100, 100);
+  setupProgressBar() {
+    const progressBar = document.getElementById('progress-bar');
+    if (!progressBar) return;
 
-      document.getElementById('progress-fill').style.width = `${progress}%`;
-      document.getElementById('current-time').innerText = this.formatTime(elapsed);
+    progressBar.addEventListener('click', (e) => {
+      if (!this.state.currentTrack || !this.state.audio.duration) return;
 
-      if (progress >= 100) {
-        this.stopProgress();
-        this.state.currentProgressMs = 0;
+      const rect = progressBar.getBoundingClientRect();
+      const percent = (e.clientX - rect.left) / rect.width;
+      const progressMs = percent * this.state.audio.duration * 1000;
+
+      this.seekTo(progressMs);
+
+      if (this.state.isHost) {
+        socket.emit('sync_seek', {
+          roomId: this.state.roomId,
+          progressMs,
+        });
       }
-    }, 1000);
-  },
-
-  stopProgress() {
-    if (this.state.progressInterval) {
-      clearInterval(this.state.progressInterval);
-      this.state.progressInterval = null;
-    }
-  },
-
-  resetProgress() {
-    this.stopProgress();
-    this.state.currentProgressMs = 0;
-    document.getElementById('progress-fill').style.width = '0%';
-    document.getElementById('current-time').innerText = '0:00';
+    });
   },
 
   // ==================== ОТРИСОВКА ====================
@@ -642,7 +864,7 @@ const app = {
   renderUsers() {
     const list = document.getElementById('users-list');
     list.innerHTML = '';
-    
+
     this.state.users.forEach(u => {
       const li = document.createElement('li');
       li.className = 'user-item';
@@ -658,7 +880,7 @@ const app = {
   renderQueue() {
     const list = document.getElementById('queue-list');
     document.getElementById('queue-count').innerText = `(${this.state.queue.length})`;
-    
+
     if (this.state.queue.length === 0) {
       list.innerHTML = '<li style="text-align:center;color:#999;padding:20px;">Очередь пуста</li>';
       return;
@@ -757,7 +979,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Обработчики кнопок
   document.getElementById('btn-login-yandex')?.addEventListener('click', () => app.initiateLogin());
   document.getElementById('btn-join')?.addEventListener('click', () => app.joinRoom());
-  
+
   // Обработчик кнопки поиска
   const searchBtn = document.querySelector('.search-container .btn');
   if (searchBtn) {
@@ -771,6 +993,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('search-query')?.addEventListener('keyup', (e) => {
     if (e.key === 'Enter') app.searchTracks();
   });
-  
+
+  // Настройка прогресс-бара
+  app.setupProgressBar();
+
   console.log('✅ App initialized, pathname:', window.location.pathname);
 });

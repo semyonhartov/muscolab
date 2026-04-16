@@ -133,6 +133,38 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Синхронное воспроизведение — хост запускает
+  socket.on('sync_play', ({ roomId, currentTrack, progressMs, timestamp }) => {
+    // Рассылаем всем в комнате команду начать воспроизведение
+    io.to(roomId).emit('sync_play', {
+      currentTrack,
+      progressMs,
+      timestamp: Date.now(), // Серверный timestamp для точной синхронизации
+    });
+  });
+
+  // Синхронная пауза — хост ставит на паузу
+  socket.on('sync_pause', ({ roomId, progressMs }) => {
+    io.to(roomId).emit('sync_pause', {
+      progressMs,
+    });
+  });
+
+  // Синхронный seek — хост перематывает
+  socket.on('sync_seek', ({ roomId, progressMs }) => {
+    io.to(roomId).emit('sync_seek', {
+      progressMs,
+    });
+  });
+
+  // Периодическая синхронизация прогресса (heartbeat от хоста)
+  socket.on('sync_heartbeat', ({ roomId, progressMs, isPlaying }) => {
+    io.to(roomId).emit('sync_heartbeat', {
+      progressMs,
+      isPlaying,
+    });
+  });
+
   // Переход к следующему треку
   socket.on('next_track', async ({ roomId }) => {
     try {

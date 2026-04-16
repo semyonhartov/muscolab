@@ -79,6 +79,60 @@ export const getTrackById = async (trackId, accessToken) => {
 };
 
 /**
+ * Получение прямой ссылки на аудиофайл (stream URL)
+ * @param {string|number} trackId - Яндекс ID трека
+ * @param {string} accessToken - Токен пользователя
+ * @param {string} [quality='192'] - Предпочтительный битрейт (64, 128, 192, 320)
+ * @returns {Promise<{url: string, bitrate: number, codec: string}>}
+ */
+export const getTrackStreamUrl = async (trackId, accessToken, quality = '192') => {
+  try {
+    const response = await axios.get(
+      `${YANDEX_API_BASE}/tracks/${trackId}/download-info`,
+      {
+        headers: {
+          Authorization: `OAuth ${accessToken}`,
+        },
+      }
+    );
+
+    const downloadInfo = response.data.result;
+    if (!downloadInfo || downloadInfo.length === 0) {
+      throw new Error('Ссылка для загрузки не найдена');
+    }
+
+    // Выбираем вариант с нужным битрейтом (предпочтительно mp3)
+    let selected = downloadInfo[0];
+    for (const info of downloadInfo) {
+      if (info.codec === 'mp3' && info.bitrate_in_kbps === parseInt(quality)) {
+        selected = info;
+        break;
+      }
+    }
+
+    // Если mp3 с нужным битрейтом нет — берём первый mp3
+    if (selected.codec !== 'mp3') {
+      for (const info of downloadInfo) {
+        if (info.codec === 'mp3') {
+          selected = info;
+          break;
+        }
+      }
+    }
+
+    return {
+      url: selected.url,
+      bitrate: selected.bitrate_in_kbps,
+      codec: selected.codec,
+      expires: selected.expires,
+    };
+  } catch (error) {
+    console.error('Get stream URL error:', error.response?.data || error.message);
+    throw new Error('Ошибка при получении ссылки на трек');
+  }
+};
+
+/**
  * Сохранение трека в кэш БД
  * @param {Object} trackData - Данные трека
  * @returns {Promise<number>} - ID трека в БД
@@ -233,28 +287,26 @@ export const voteForTrack = async (roomTrackId, userId, value) => {
  */
 export const addTrackToUserPlaylist = async (yandexTrackId, accessToken, yandexUserId) => {
   try {
-    // Используем правильный формат запроса для like
+    // Пробуем endpoint /playlists/likes с POST методом
     const response = await axios.post(
-      `${YANDEX_API_BASE}/users/${yandexUserId}/tracks/like`,
-      {},  // Пустое тело, trackId передаётся в query params
+      `${YANDEX_API_BASE}/users/${yandexUserId}/likes/tracks/add-multiple`,
+      new URLSearchParams({ 'track-ids': yandexTrackId }),
       {
-        params: {
-          trackId: yandexTrackId,
-        },
         headers: {
-          Authorization: `OAuth ${accessToken}`,
+          'Authorization': `OAuth ${accessToken}`,
+          'X-Yandex-Music-Client': 'YandexMusicWeb/3.0', // Match the Web token
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
       }
     );
-
     return { success: true, message: 'Трек добавлен в "Мне нравится"' };
   } catch (error) {
     console.error('Add to playlist error:', error.response?.data || error.message);
-    // Игнорируем ошибку "not-found" - это известный баг Яндекса
-    if (error.response?.data?.error?.name === 'not-found') {
-      return { success: true, message: 'Трек сохранён (локально)' };
+    // Если трек уже добавлен — считаем успехом
+    if (error.response?.data?.error?.name === 'track-already-exists') {
+      return { success: true, message: 'Трек уже есть в "Мне нравится"' };
     }
-    throw new Error('Ошибка при добавлении трека в плейлист');
+    throw new Error(`Ошибка при добавлении трека в плейлист ${accessToken}`);
   }
 };
 
@@ -304,10 +356,28 @@ export const getCurrentTrackInRoom = async (roomId) => {
  * @returns {Promise<void>}
  */
 export const setTrackAsPlaying = async (roomId, roomTrackId) => {
-  // Сначала сбрасываем все playing треки в played
+  // Сначала получаем track_id целевой записи
+  const trackResult = await pool.query(
+    'SELECT track_id FROM room_tracks WHERE id = $1',
+    [roomTrackId]
+  );
+
+  if (trackResult.rows.length === 0) {
+    throw new Error('Запись трека не найдена');
+  }
+
+  const trackId = trackResult.rows[0].track_id;
+
+  // Сбрасываем все playing треки в played
   await pool.query(
     "UPDATE room_tracks SET status = 'played' WHERE room_id = $1 AND status = 'playing'",
     [roomId]
+  );
+
+  // Удаляем все записи с тем же (room_id, track_id, status='playing') — защита от дубликатов
+  await pool.query(
+    "DELETE FROM room_tracks WHERE room_id = $1 AND track_id = $2 AND status = 'playing' AND id != $3",
+    [roomId, trackId, roomTrackId]
   );
 
   // Устанавливаем новый трек как playing

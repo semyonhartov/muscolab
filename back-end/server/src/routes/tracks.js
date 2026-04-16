@@ -5,7 +5,8 @@ import {
   addTrackToRoom,
   voteTrack,
   saveTrackToPlaylist,
-  getRoomQueueHandler
+  getRoomQueueHandler,
+  getTrackStreamUrlHandler
 } from '../controllers/tracksController.js';
 
 const router = Router();
@@ -33,6 +34,12 @@ router.post('/vote', requireAuth, voteTrack);
  * @route POST /tracks/:yandexId/save
  */
 router.post('/:yandexId/save', requireAuth, saveTrackToPlaylist);
+
+/**
+ * Получение прямой ссылки на аудиофайл трека
+ * @route GET /tracks/:yandexId/stream-url
+ */
+router.get('/:yandexId/stream-url', requireAuth, getTrackStreamUrlHandler);
 
 /**
  * Получение очереди комнаты
