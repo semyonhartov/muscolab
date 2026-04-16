@@ -20,6 +20,9 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5000;
 
+// Определяем путь к фронтенду
+const FRONTEND_PATH = path.resolve(__dirname, '../../../front-end/public');
+
 // Middleware
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -27,6 +30,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Раздача статики фронтенда
+app.use(express.static(FRONTEND_PATH));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -38,9 +44,12 @@ app.use('/auth', authRoutes);
 app.use('/tracks', tracksRoutes);
 app.use('/rooms', roomsRoutes);
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+// Обработка всех остальных запросов - возврат index.html для SPA
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/socket')) {
+    return res.status(404).json({ error: 'Endpoint not found' });
+  }
+  res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
 });
 
 // Error handler

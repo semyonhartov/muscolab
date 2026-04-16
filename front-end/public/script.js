@@ -1,5 +1,5 @@
 // Подключение к Socket.io серверу
-const API_URL = 'http://localhost:5000';
+const API_URL = window.location.origin;
 const socket = io(API_URL, {
   autoConnect: false,
   auth: { token: localStorage.getItem('jwt_token') },
@@ -18,6 +18,8 @@ const app = {
     progress: 0,
     progressInterval: null,
     socketConnected: false,
+    audio: null,
+    currentProgressMs: 0,
   },
 
   // ==================== АВТОРИЗАЦИЯ ====================
@@ -58,36 +60,70 @@ const app = {
     const token = urlParams.get('token');
     const userParam = urlParams.get('user');
 
+    console.log('📥 Frontend callback:', { hasToken: !!token, hasUser: !!userParam });
+
     if (token) {
       try {
         localStorage.setItem('jwt_token', token);
         const userData = JSON.parse(decodeURIComponent(userParam));
         localStorage.setItem('user_data', JSON.stringify(userData));
-        
+
+        console.log('✅ User data saved:', userData);
+
         this.state.user = userData;
         this.state.socketConnected = true;
         socket.auth.token = token;
         socket.connect();
-        
+
         this.enterAppAfterLogin(userData);
+        
+        // Очищаем URL от параметров токена
         window.history.replaceState({}, document.title, window.location.pathname);
+        
+        console.log('✅ Callback processed successfully');
       } catch (err) {
-        console.error('Callback error:', err);
-        alert('Ошибка при входе');
+        console.error('❌ Callback error:', err);
+        alert('Ошибка при входе: ' + err.message);
         this.showLoginScreen();
       }
     } else {
       const error = urlParams.get('error') || 'Неизвестная ошибка';
+      console.error('❌ Callback error:', error);
       alert(`Ошибка авторизации: ${error}`);
       this.showLoginScreen();
     }
   },
 
   enterAppAfterLogin(userData) {
+    console.log('🚀 Entering app with user:', userData);
+
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app-screen').classList.remove('hidden');
+
+    // Обновляем имя пользователя
     document.getElementById('display-username').innerText = userData.nickname || 'Пользователь';
+
+    // Обновляем аватар если есть
+    const userInfoEl = document.querySelector('.user-info');
+    if (userData.avatar_url) {
+      // Проверяем, есть ли уже аватар
+      let avatarEl = document.getElementById('user-avatar');
+      if (!avatarEl) {
+        avatarEl = document.createElement('img');
+        avatarEl.id = 'user-avatar';
+        avatarEl.className = 'user-avatar';
+        userInfoEl.insertBefore(avatarEl, userInfoEl.firstChild);
+      }
+      avatarEl.src = userData.avatar_url;
+      avatarEl.alt = userData.nickname || 'User';
+      avatarEl.style.display = 'block';
+    }
+
     this.setupSocketListeners();
+
+    // Автосоздание комнаты после входа
+    console.log('🏠 Auto-creating room...');
+    this.createRoom();
   },
 
   logout() {
@@ -120,6 +156,8 @@ const app = {
       return;
     }
 
+    console.log('🏠 Creating room...');
+
     try {
       const res = await fetch(`${API_URL}/rooms`, {
         method: 'POST',
@@ -129,15 +167,20 @@ const app = {
         }
       });
 
+      console.log('📥 Room creation response status:', res.status);
+
       if (!res.ok) {
         const error = await res.json();
+        console.error('❌ Room creation error:', error);
         throw new Error(error.error || 'Не удалось создать комнату');
       }
 
       const data = await res.json();
+      console.log('✅ Room created:', data.room);
+      
       this.initRoom(data.room);
     } catch (err) {
-      console.error('Create room error:', err);
+      console.error('❌ Create room error:', err);
       this.showToast(err.message || 'Не удалось создать комнату');
     }
   },
@@ -230,11 +273,14 @@ const app = {
       this.renderQueue();
     });
 
-    socket.on('player_state', ({ status, currentTrack, timestamp }) => {
-      console.log('Player state updated:', status);
+    socket.on('player_state', ({ status, currentTrack, timestamp, progressMs }) => {
+      console.log('Player state updated:', status, 'progress:', progressMs);
       if (currentTrack) {
         this.state.currentTrack = currentTrack;
         this.state.isPlaying = status === 'playing';
+        if (progressMs !== undefined) {
+          this.state.currentProgressMs = progressMs;
+        }
         this.updatePlayerUI();
       }
     });
@@ -244,9 +290,10 @@ const app = {
       this.state.currentTrack = currentTrack;
       this.state.queue = queue || [];
       this.state.isPlaying = status === 'playing';
+      this.state.currentProgressMs = 0; // Сброс прогресса при новом треке
       this.renderQueue();
       this.updatePlayerUI();
-      
+
       if (currentTrack) {
         this.showToast(`Сейчас играет: ${currentTrack.title}`);
       }
@@ -287,12 +334,16 @@ const app = {
     const resultsContainer = document.getElementById('search-results');
     const loadingEl = document.getElementById('search-loading');
 
+    console.log('🔍 Frontend search triggered:', { query, queryLength: query?.length });
+
     if (!query || query.length < 2) {
       this.showToast('Введите минимум 2 символа для поиска');
       return;
     }
 
     const token = localStorage.getItem('jwt_token');
+    console.log('🔑 Token exists:', !!token);
+    
     if (!token) {
       alert('Вы не авторизованы. Войдите через Яндекс.');
       this.showLoginScreen();
@@ -303,17 +354,24 @@ const app = {
     resultsContainer.innerHTML = '';
 
     try {
-      const res = await fetch(`${API_URL}/tracks/search?q=${encodeURIComponent(query)}`, {
+      const url = `${API_URL}/tracks/search?q=${encodeURIComponent(query)}`;
+      console.log('📡 Fetch URL:', url);
+      
+      const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
+      console.log('📥 Response status:', res.status);
+
       if (!res.ok) {
         const error = await res.json();
+        console.error('❌ Search error response:', error);
         throw new Error(error.error || 'Ошибка при поиске');
       }
 
       const data = await res.json();
-      
+      console.log('✅ Search response:', { total: data.total, tracks: data.tracks.length });
+
       if (data.tracks.length === 0) {
         resultsContainer.innerHTML = '<li style="padding:10px;color:#999;">Ничего не найдено 😔</li>';
         return;
@@ -323,7 +381,7 @@ const app = {
         const li = document.createElement('li');
         li.className = 'track-item';
         const coverUrl = track.cover_url || 'https://via.placeholder.com/50';
-        
+
         li.innerHTML = `
           <img src="${coverUrl}" alt="cover" class="track-cover">
           <div class="track-info">
@@ -337,7 +395,7 @@ const app = {
         resultsContainer.appendChild(li);
       });
     } catch (err) {
-      console.error('Search error:', err);
+      console.error('❌ Search error:', err);
       resultsContainer.innerHTML = `<li style="padding:10px;color:red;">Ошибка: ${err.message}</li>`;
     } finally {
       loadingEl.classList.add('hidden');
@@ -427,13 +485,14 @@ const app = {
     }
 
     this.state.isPlaying = !this.state.isPlaying;
-    
+
     // Отправляем состояние через Socket.io
     socket.emit('player_state', {
       roomId: this.state.roomId,
       status: this.state.isPlaying ? 'playing' : 'paused',
       currentTrack: this.state.currentTrack,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      progressMs: this.state.currentProgressMs,
     });
 
     this.updatePlayerUI();
@@ -462,6 +521,7 @@ const app = {
         this.state.currentTrack = data.currentTrack;
         this.state.queue = data.queue || [];
         this.state.isPlaying = true;
+        this.state.currentProgressMs = 0; // Сброс прогресса при новом треке
         this.renderQueue();
         this.updatePlayerUI();
         this.showToast(`Сейчас играет: ${data.currentTrack.title}`);
@@ -520,7 +580,7 @@ const app = {
       artistEl.innerText = this.state.currentTrack.artist;
       coverEl.src = this.state.currentTrack.cover_url || 'https://via.placeholder.com/300';
       saveBtn.style.display = 'inline-block';
-      
+
       // Обновляем длительность
       const duration = this.state.currentTrack.duration_ms || 0;
       document.getElementById('duration').innerText = this.formatTime(duration);
@@ -536,28 +596,29 @@ const app = {
 
     // Обновляем прогресс бар
     if (this.state.isPlaying && this.state.currentTrack) {
-      this.startProgress();
+      this.startProgress(this.state.currentProgressMs);
     } else {
+      // При паузе не сбрасываем прогресс, просто останавливаем интервал
       this.stopProgress();
-      document.getElementById('progress-fill').style.width = '0%';
-      document.getElementById('current-time').innerText = '0:00';
     }
   },
 
-  startProgress() {
+  startProgress(startFromMs = 0) {
     this.stopProgress();
-    const startTime = Date.now();
+    const startTime = Date.now() - startFromMs;
     const duration = this.state.currentTrack?.duration_ms || 0;
-    
+
     this.state.progressInterval = setInterval(() => {
       const elapsed = Date.now() - startTime;
+      this.state.currentProgressMs = elapsed;
       const progress = Math.min((elapsed / duration) * 100, 100);
-      
+
       document.getElementById('progress-fill').style.width = `${progress}%`;
       document.getElementById('current-time').innerText = this.formatTime(elapsed);
-      
+
       if (progress >= 100) {
         this.stopProgress();
+        this.state.currentProgressMs = 0;
       }
     }, 1000);
   },
@@ -567,6 +628,13 @@ const app = {
       clearInterval(this.state.progressInterval);
       this.state.progressInterval = null;
     }
+  },
+
+  resetProgress() {
+    this.stopProgress();
+    this.state.currentProgressMs = 0;
+    document.getElementById('progress-fill').style.width = '0%';
+    document.getElementById('current-time').innerText = '0:00';
   },
 
   // ==================== ОТРИСОВКА ====================
@@ -677,8 +745,10 @@ const app = {
 
 document.addEventListener('DOMContentLoaded', () => {
   const urlParams = new URLSearchParams(window.location.search);
-  
-  if (urlParams.has('token') || urlParams.has('error')) {
+  const pathname = window.location.pathname;
+
+  // Обработка callback после авторизации
+  if (pathname === '/callback' || urlParams.has('token') || urlParams.has('error')) {
     app.handleYandexCallback();
   } else {
     app.checkAuthStatus();
@@ -688,8 +758,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-login-yandex')?.addEventListener('click', () => app.initiateLogin());
   document.getElementById('btn-join')?.addEventListener('click', () => app.joinRoom());
   
+  // Обработчик кнопки поиска
+  const searchBtn = document.querySelector('.search-container .btn');
+  if (searchBtn) {
+    searchBtn.addEventListener('click', () => {
+      console.log('🔍 Search button clicked');
+      app.searchTracks();
+    });
+  }
+
   // Поиск по Enter
   document.getElementById('search-query')?.addEventListener('keyup', (e) => {
     if (e.key === 'Enter') app.searchTracks();
   });
+  
+  console.log('✅ App initialized, pathname:', window.location.pathname);
 });

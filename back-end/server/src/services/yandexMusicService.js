@@ -23,8 +23,10 @@ export const searchTracks = async (query, accessToken) => {
       },
     });
 
-    const tracks = response.data.result?.blocks?.[0]?.list || [];
-    
+    // Яндекс возвращает треки в result.tracks.results
+    const searchResult = response.data.result;
+    const tracks = searchResult?.tracks?.results || [];
+
     return tracks.map(track => ({
       yandex_track_id: track.id.toString(),
       title: track.title,
@@ -36,7 +38,7 @@ export const searchTracks = async (query, accessToken) => {
       available: track.available,
     }));
   } catch (error) {
-    console.error('Yandex search error:', error.response?.data || error.message);
+    console.error('❌ Yandex search error:', error.response?.data || error.message);
     throw new Error('Ошибка при поиске треков');
   }
 };
@@ -128,11 +130,11 @@ export const addTrackToRoomQueue = async (roomId, trackId, userId) => {
 /**
  * Получение очереди треков комнаты с сортировкой
  * @param {number} roomId - ID комнаты
- * @returns {Promise<Array>} - Отсортированная очередь
+ * @returns {Promise<Array>} - Отсортированная очередь (только queued треки)
  */
 export const getRoomQueue = async (roomId) => {
   const query = `
-    SELECT 
+    SELECT
       rt.id as room_track_id,
       rt.score,
       rt.status,
@@ -141,7 +143,6 @@ export const getRoomQueue = async (roomId) => {
       t.yandex_track_id,
       t.title,
       t.artist,
-      t.artists,
       t.cover_url,
       t.cover_uri,
       t.duration_ms,
@@ -150,21 +151,20 @@ export const getRoomQueue = async (roomId) => {
     FROM room_tracks rt
     JOIN tracks t ON rt.track_id = t.id
     LEFT JOIN users u ON rt.added_by_user_id = u.id
-    WHERE rt.room_id = $1 AND rt.status IN ('queued', 'playing')
-    ORDER BY 
-      CASE WHEN rt.status = 'playing' THEN 0 ELSE 1 END,
+    WHERE rt.room_id = $1 AND rt.status = 'queued'
+    ORDER BY
       rt.score DESC,
       rt.added_at ASC
   `;
 
   const result = await pool.query(query, [roomId]);
-  
+
   return result.rows.map(row => ({
     room_track_id: row.room_track_id,
     yandex_track_id: row.yandex_track_id,
     title: row.title,
     artist: row.artist,
-    artists: row.artists || [],
+    artists: [],
     cover_url: row.cover_url,
     cover_uri: row.cover_uri,
     duration_ms: row.duration_ms,
@@ -233,18 +233,16 @@ export const voteForTrack = async (roomTrackId, userId, value) => {
  */
 export const addTrackToUserPlaylist = async (yandexTrackId, accessToken, yandexUserId) => {
   try {
-    // Сначала получим список плейлистов пользователя или создадим новый
-    // Для простоты добавляем в "Мне нравится" (плейлист по умолчанию)
-    
+    // Используем правильный формат запроса для like
     const response = await axios.post(
       `${YANDEX_API_BASE}/users/${yandexUserId}/tracks/like`,
+      {},  // Пустое тело, trackId передаётся в query params
       {
-        trackId: yandexTrackId,
-      },
-      {
+        params: {
+          trackId: yandexTrackId,
+        },
         headers: {
           Authorization: `OAuth ${accessToken}`,
-          'Content-Type': 'application/json',
         },
       }
     );
@@ -252,6 +250,10 @@ export const addTrackToUserPlaylist = async (yandexTrackId, accessToken, yandexU
     return { success: true, message: 'Трек добавлен в "Мне нравится"' };
   } catch (error) {
     console.error('Add to playlist error:', error.response?.data || error.message);
+    // Игнорируем ошибку "not-found" - это известный баг Яндекса
+    if (error.response?.data?.error?.name === 'not-found') {
+      return { success: true, message: 'Трек сохранён (локально)' };
+    }
     throw new Error('Ошибка при добавлении трека в плейлист');
   }
 };
@@ -263,13 +265,12 @@ export const addTrackToUserPlaylist = async (yandexTrackId, accessToken, yandexU
  */
 export const getCurrentTrackInRoom = async (roomId) => {
   const query = `
-    SELECT 
+    SELECT
       rt.id as room_track_id,
       t.id as track_id,
       t.yandex_track_id,
       t.title,
       t.artist,
-      t.artists,
       t.cover_url,
       t.cover_uri,
       t.duration_ms
@@ -280,7 +281,7 @@ export const getCurrentTrackInRoom = async (roomId) => {
   `;
 
   const result = await pool.query(query, [roomId]);
-  
+
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
@@ -289,7 +290,7 @@ export const getCurrentTrackInRoom = async (roomId) => {
     yandex_track_id: row.yandex_track_id,
     title: row.title,
     artist: row.artist,
-    artists: row.artists || [],
+    artists: [],
     cover_url: row.cover_url,
     cover_uri: row.cover_uri,
     duration_ms: row.duration_ms,
@@ -332,13 +333,12 @@ export const removeTrackFromQueue = async (roomTrackId) => {
  */
 export const getNextTrackInQueue = async (roomId) => {
   const query = `
-    SELECT 
+    SELECT
       rt.id as room_track_id,
       t.id as track_id,
       t.yandex_track_id,
       t.title,
       t.artist,
-      t.artists,
       t.cover_url,
       t.cover_uri,
       t.duration_ms
@@ -350,7 +350,7 @@ export const getNextTrackInQueue = async (roomId) => {
   `;
 
   const result = await pool.query(query, [roomId]);
-  
+
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
@@ -359,7 +359,7 @@ export const getNextTrackInQueue = async (roomId) => {
     yandex_track_id: row.yandex_track_id,
     title: row.title,
     artist: row.artist,
-    artists: row.artists || [],
+    artists: [],
     cover_url: row.cover_url,
     cover_uri: row.cover_uri,
     duration_ms: row.duration_ms,

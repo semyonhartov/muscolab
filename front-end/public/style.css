@@ -166,6 +166,14 @@ input[type="text"]:focus {
   gap: 12px;
 }
 
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #667eea;
+}
+
 #display-username {
   font-weight: 600;
   color: #333;

@@ -14,9 +14,13 @@ import pool from '../config/database.js';
  * GET /api/tracks/search?q=...
  */
 export const searchTracks = async (req, res) => {
+  console.log('🔍 Search request received:', req.query);
+  
   try {
     const { q } = req.query;
     const userId = req.user.userId;
+
+    console.log('📝 Search query:', q, '| User:', userId);
 
     if (!q || q.trim().length < 2) {
       return res.status(400).json({ error: 'Поисковый запрос должен содержать минимум 2 символа' });
@@ -24,16 +28,20 @@ export const searchTracks = async (req, res) => {
 
     // Получаем токен пользователя для доступа к API Яндекса
     const accessToken = await getUserToken(userId);
+    console.log('🔑 Access token:', accessToken ? 'received' : 'NULL');
+    
     if (!accessToken) {
       return res.status(401).json({ error: 'Требуется повторная авторизация' });
     }
 
     // Поиск через Яндекс API
+    console.log('🔎 Searching Yandex for:', q);
     const tracks = await yandexSearchTracks(q, accessToken);
+    console.log('✅ Found tracks:', tracks.length);
 
     res.json({ tracks, total: tracks.length });
   } catch (error) {
-    console.error('Search tracks error:', error.message);
+    console.error('❌ Search tracks error:', error.message);
     res.status(500).json({ error: error.message || 'Ошибка при поиске треков' });
   }
 };
